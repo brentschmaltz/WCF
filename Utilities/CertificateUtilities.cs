@@ -1,14 +1,14 @@
 // ----------------------------------------------------------------------------
-// Copyright (C) 2008 Microsoft Corporation, All rights reserved.
+// Certificate Utilities
+//  - some helpful methods to get X509Certificates from cert store.
 // ----------------------------------------------------------------------------
 
 using System;
 using System.IdentityModel.Tokens;
 using System.Security.Cryptography.X509Certificates;
 
-namespace SampleUtilities
+namespace WcfUtilities
 {
-    [Serializable]
     public struct CertFindQuad
     {
         public CertFindQuad(string queryValue, X509FindType findType, StoreLocation storeLocation, StoreName storeName)
@@ -23,7 +23,6 @@ namespace SampleUtilities
         public X509FindType FindType;
         public StoreLocation StoreLocation;
         public StoreName StoreName;
-
     }
 
     public class CertificateUtilities
@@ -35,13 +34,13 @@ namespace SampleUtilities
             {
                 store.Open(OpenFlags.ReadOnly);
                 X509Certificate2Collection certs = store.Certificates.Find(X509FindType.FindBySubjectName, subject, false);
-                X509Certificate2 certificate = (X509Certificate2)certs[0];
+                X509Certificate2 certificate = certs[0];
                 X509SecurityToken t = new X509SecurityToken(certificate);
                 return t;
             }
             catch
             {
-                Console.WriteLine("Cannot find certificate CN=client.com in the CurrentUser/My store");
+                Console.WriteLine($"Cannot find certificate with 'SubjectName' {subject} in: {storeName} / {storeLocation}.");
                 throw;
             }
             finally

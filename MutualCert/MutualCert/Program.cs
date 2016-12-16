@@ -1,4 +1,8 @@
-﻿using System;
+﻿// ----------------------------------------------------------------------------
+// Mutual Cert Binding Example
+// ----------------------------------------------------------------------------
+
+using System;
 using System.Security.Cryptography.X509Certificates;
 using System.ServiceModel;
 using System.ServiceModel.Channels;
@@ -23,10 +27,12 @@ namespace MutualCert
             binding.Security.Message.NegotiateServiceCredential = false;
 
             var customBinding = new CustomBinding(binding);
-            BindingUtilities.SetSecurityHeaderLayout(customBinding, SecurityHeaderLayout.LaxTimestampFirst);
-            BindingUtilities.SetReplayDetection(customBinding, false);
+            BindingUtilities.SetSecurityHeaderLayout(customBinding, SecurityHeaderLayout.Strict);
             BindingUtilities.SetMessageProtectionOrder(customBinding, MessageProtectionOrder.EncryptBeforeSign);
             BindingUtilities.SetMaxTimeout(customBinding);
+            BindingUtilities.SetReplayDetection(customBinding, false);
+            if (binding.Security.Message.EstablishSecurityContext)
+                BindingUtilities.SetSctCookieMode(customBinding, true);
 
             var serviceHost = new ServiceHost(typeof(RequestReply), new Uri(baseAddress));
             serviceHost.AddServiceEndpoint(typeof(IRequestReply), customBinding, baseAddress);

@@ -1,9 +1,9 @@
+// ----------------------------------------------------------------------------
 // BindingUtilities
 //  - some helpful methods to tweak WCF bindings
 // ----------------------------------------------------------------------------
 
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IdentityModel.Tokens;
@@ -101,7 +101,7 @@ namespace WcfUtilities
             var customBinding = new CustomBinding(binding);
             var securityBindingElement = GetSecurityBindingElement(customBinding);
             if (securityBindingElement == null)
-                throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "{0} not found in {1}.", typeof(SecurityBindingElement), binding.GetType()));
+                throw new InvalidOperationException($"{typeof(SecurityBindingElement)} not found in: {binding.GetType()}.");
 
             SetMessageProtectionOrder(securityBindingElement, messageProtectionOrder);
 
@@ -112,7 +112,7 @@ namespace WcfUtilities
         {
             var securityBindingElement = GetSecurityBindingElement(customBinding);
             if (securityBindingElement == null)
-                throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "{0} not found in {1}.", typeof(SecurityBindingElement), customBinding.GetType()));
+                throw new InvalidOperationException($"{typeof(SecurityBindingElement)} not found in: {customBinding.GetType()}.");
 
             SetMessageProtectionOrder(securityBindingElement, messageProtectionOrder);
         }
@@ -469,7 +469,6 @@ namespace WcfUtilities
             SetMaxTimeout(binding, TimeSpan.MaxValue);
         }
 
-
         public static void SetMessageProtectionOrder(SecurityBindingElement securityBindingElement, MessageProtectionOrder messageProtectionOrder)
         {
             var ssbe = securityBindingElement as SymmetricSecurityBindingElement;
@@ -485,31 +484,24 @@ namespace WcfUtilities
                 asbe.MessageProtectionOrder = messageProtectionOrder;
                 return;
             }
+
+            throw new InvalidOperationException($"Unable to set 'MessageProtectionOrder' on securityBindingElement: {securityBindingElement}");
         }
 
-        public static Binding SetRequireCancellation(Binding binding, bool requireCancellation)
+        public static void SetSctCookieMode(CustomBinding customBinding, bool cookieMode)
         {
-            var bec = binding.CreateBindingElements();
-            SecurityBindingElement sbe = null;
-            foreach (BindingElement be in bec)
-            {
-                if (be is SecurityBindingElement)
-                {
-                    sbe = be as SecurityBindingElement;
-                    break;
-                }
-            }
+            if (customBinding == null)
+                throw new ArgumentNullException(nameof(customBinding));
 
+            var sbe = GetSecurityBindingElement(customBinding);
             var ssbe = sbe as SymmetricSecurityBindingElement;
             if (ssbe != null)
             {
                 var scstp = ssbe.ProtectionTokenParameters as SecureConversationSecurityTokenParameters;
                 if (scstp != null)
-                {
-                    scstp.RequireCancellation = requireCancellation;
-                }
+                    scstp.RequireCancellation = !cookieMode;
 
-                return new CustomBinding(bec);
+                return;
             }
 
             var tsbe = sbe as TransportSecurityBindingElement;
@@ -519,25 +511,15 @@ namespace WcfUtilities
                 {
                     var sstp = tsbe.EndpointSupportingTokenParameters.Endorsing[0] as SspiSecurityTokenParameters;
                     if (sstp != null)
-                    {
-                        sstp.RequireCancellation = requireCancellation;
-                        return new CustomBinding(bec);
-                    }
-
+                        sstp.RequireCancellation = !cookieMode;
 
                     var scstp = tsbe.EndpointSupportingTokenParameters.Endorsing[0] as SecureConversationSecurityTokenParameters;
                     if (scstp != null)
-                    {
-                        scstp.RequireCancellation = requireCancellation;
-                        return new CustomBinding(bec);
-                    }
+                        scstp.RequireCancellation = !cookieMode;
                 }
             }
 
-            Console.WriteLine("Unable to set 'RequireCancellation'");
-
-            return binding;
-
+            throw new InvalidOperationException($"Unable to set SctCookieMode on customBinding: {customBinding}");
         }
 
         public static void SetReplayDetection(CustomBinding customBinding, bool replayDetection)
@@ -571,16 +553,6 @@ namespace WcfUtilities
                 }
             }
             return false;
-        }
-
-        public static void TurnOffSecureConversation(CustomBinding cb)
-        {
-            throw new NotImplementedException();
-
-            SecurityBindingElement sbe;
-            if ( TryGetSecurityBindingElement( cb, out sbe ) )
-            {
-            }
         }
     }
 }

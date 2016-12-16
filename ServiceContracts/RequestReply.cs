@@ -1,6 +1,7 @@
 //-----------------------------------------------------------------------------
 // RequestReply
 //  - contracts with different ProtectionLevels
+// ----------------------------------------------------------------------------
 
 using System;
 using System.Net.Security;

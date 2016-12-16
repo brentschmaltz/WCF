@@ -1,4 +1,8 @@
-﻿using System;
+﻿// ----------------------------------------------------------------------------
+// UsernamePassword Example
+// ----------------------------------------------------------------------------
+
+using System;
 using System.Security.Cryptography.X509Certificates;
 using System.ServiceModel;
 using System.ServiceModel.Channels;
@@ -42,16 +46,16 @@ namespace UsernamePasswordValidation
             try
             {
                 string outbound = "SendString";
-                Console.WriteLine("Client sending: '{0}'", outbound);
+                Console.WriteLine($"Client sending: '{outbound}'");
                 string inbound = srr.SendString(outbound);
-                Console.WriteLine("Client received: '{0}'", inbound);
+                Console.WriteLine($"Client received: '{inbound}'");
             }
             catch (Exception e)
             {
-                Console.WriteLine("Exception: '{0}'", e);
+                Console.WriteLine($"Exception: '{e}'");
             }
 
-            Console.WriteLine("\nPress any key to close");
+            Console.WriteLine("Press any key to close");
             Console.ReadKey();
         }
     }
