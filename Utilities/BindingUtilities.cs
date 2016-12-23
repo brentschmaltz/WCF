@@ -79,16 +79,16 @@ namespace WcfUtilities
                 Console.WriteLine("Can't add MexEndpoint");
         }
 
-        static Binding BuildBinding( SecurityBindingElement sbe )
+        static Binding BuildBinding(SecurityBindingElement sbe)
         {
             sbe.MessageSecurityVersion = MessageSecurityVersion.WSSecurity11WSTrust13WSSecureConversation13WSSecurityPolicy12;
             var bec = new BindingElementCollection();
 
-            bec.Add( sbe );
-            bec.Add( new TextMessageEncodingBindingElement() );
-            bec.Add( new HttpTransportBindingElement() );
+            bec.Add(sbe);
+            bec.Add(new TextMessageEncodingBindingElement());
+            bec.Add(new HttpTransportBindingElement());
 
-            CustomBinding binding = new CustomBinding( bec );
+            CustomBinding binding = new CustomBinding(bec);
             binding.Name = "WcfUtilities.CustomBinding";
             binding.Namespace = "http://IdentityModel.samples.org";
 
@@ -118,57 +118,57 @@ namespace WcfUtilities
         }
 
         // This method creates a CustomBinding based on a WSFederationHttpBinding which does not use secure conversation.
-        public static CustomBinding CreateFederationBindingWithoutSecureSession( WS2007FederationHttpBinding inputBinding )
+        public static CustomBinding CreateFederationBindingWithoutSecureSession(WS2007FederationHttpBinding inputBinding)
         {
 
-            var outputBinding = new CustomBinding( inputBinding.CreateBindingElements() );
+            var outputBinding = new CustomBinding(inputBinding.CreateBindingElements());
             var security = outputBinding.Elements.Find<SecurityBindingElement>();
 
             SecureConversationSecurityTokenParameters secureConversation;
-            if ( WSFederationHttpSecurityMode.Message == inputBinding.Security.Mode )
+            if (WSFederationHttpSecurityMode.Message == inputBinding.Security.Mode)
             {
                 var symmetricSecurity = security as SymmetricSecurityBindingElement;
                 secureConversation = symmetricSecurity.ProtectionTokenParameters as SecureConversationSecurityTokenParameters;
             }
             // If the security mode is message, then the secure session settings are the endorsing token parameters.
-            else if ( WSFederationHttpSecurityMode.TransportWithMessageCredential == inputBinding.Security.Mode )
+            else if (WSFederationHttpSecurityMode.TransportWithMessageCredential == inputBinding.Security.Mode)
             {
                 var transportSecurity = security as TransportSecurityBindingElement;
                 secureConversation = transportSecurity.EndpointSupportingTokenParameters.Endorsing[0] as SecureConversationSecurityTokenParameters;
             }
             else
             {
-                throw new NotSupportedException( String.Format( "Unhandled security mode {0}.", inputBinding.Security.Mode ) );
+                throw new NotSupportedException(String.Format("Unhandled security mode {0}.", inputBinding.Security.Mode));
             }
 
-            var securityIndex = outputBinding.Elements.IndexOf( security );
+            var securityIndex = outputBinding.Elements.IndexOf(security);
             outputBinding.Elements[securityIndex] = secureConversation.BootstrapSecurityBindingElement;
 
             return outputBinding;
         }
 
         // This method creates a CustomBinding based on a WSFederationHttpBinding which does not use secure conversation.
-        public static CustomBinding CreateFederationBindingWithoutSecureSession( WSFederationHttpBinding inputBinding )
+        public static CustomBinding CreateFederationBindingWithoutSecureSession(WSFederationHttpBinding inputBinding)
         {
-            var outputBinding = new CustomBinding( inputBinding.CreateBindingElements() );
+            var outputBinding = new CustomBinding(inputBinding.CreateBindingElements());
             var security = outputBinding.Elements.Find<SecurityBindingElement>();
             SecureConversationSecurityTokenParameters secureConversation;
-            if ( WSFederationHttpSecurityMode.Message == inputBinding.Security.Mode )
+            if (WSFederationHttpSecurityMode.Message == inputBinding.Security.Mode)
             {
                 var symmetricSecurity = security as SymmetricSecurityBindingElement;
                 secureConversation = symmetricSecurity.ProtectionTokenParameters as SecureConversationSecurityTokenParameters;
             }
-            else if ( WSFederationHttpSecurityMode.TransportWithMessageCredential == inputBinding.Security.Mode )
+            else if (WSFederationHttpSecurityMode.TransportWithMessageCredential == inputBinding.Security.Mode)
             {
                 var transportSecurity = security as TransportSecurityBindingElement;
                 secureConversation = transportSecurity.EndpointSupportingTokenParameters.Endorsing[0] as SecureConversationSecurityTokenParameters;
             }
             else
             {
-                throw new NotSupportedException( String.Format( "Unhandled security mode {0}.", inputBinding.Security.Mode ) );
+                throw new NotSupportedException(String.Format("Unhandled security mode {0}.", inputBinding.Security.Mode));
             }
 
-            var securityIndex = outputBinding.Elements.IndexOf( security );
+            var securityIndex = outputBinding.Elements.IndexOf(security);
             outputBinding.Elements[securityIndex] = secureConversation.BootstrapSecurityBindingElement;
 
             return outputBinding;
@@ -271,12 +271,12 @@ namespace WcfUtilities
         public static CustomBinding GetSspiBinding()
         {
             var bindingElements = new Collection<BindingElement>();
-            var security = SecurityBindingElement.CreateSecureConversationBindingElement( SecurityBindingElement.CreateSspiNegotiationBindingElement( true ), true );
-            bindingElements.Add( security );
+            var security = SecurityBindingElement.CreateSecureConversationBindingElement(SecurityBindingElement.CreateSspiNegotiationBindingElement(true), true);
+            bindingElements.Add(security);
             var http = new HttpTransportBindingElement();
-            bindingElements.Add( http );
+            bindingElements.Add(http);
 
-            var binding = new CustomBinding( bindingElements );
+            var binding = new CustomBinding(bindingElements);
             binding.Name = "WcfUtilities.GetSspiBinding";
             binding.Namespace = "http://tempuri.org/bindings";
             return binding;
@@ -553,6 +553,27 @@ namespace WcfUtilities
                 }
             }
             return false;
+        }
+
+        public static void ValidateMessageProtectionOrder(CustomBinding customBinding, MessageProtectionOrder messageProtectionOrder)
+        {
+            var securityBindingElement = GetSecurityBindingElement(customBinding);
+            if (securityBindingElement != null)
+            {
+                var ssbe = securityBindingElement as SymmetricSecurityBindingElement;
+                if (ssbe != null)
+                {
+                    if (ssbe.MessageProtectionOrder != messageProtectionOrder)
+                        throw new InvalidOperationException($"{ssbe.GetType()}.MessageProtectionOrder invalid. 'actual' : 'desired'. '{ssbe.MessageProtectionOrder}' : '{messageProtectionOrder}'");
+                }
+
+                var asbe = securityBindingElement as AsymmetricSecurityBindingElement;
+                if (asbe != null)
+                {
+                    if (asbe.MessageProtectionOrder != messageProtectionOrder)
+                        throw new InvalidOperationException($"{asbe.GetType()}.MessageProtectionOrder invalid. 'actual' : 'desired'. '{ssbe.MessageProtectionOrder}' : '{messageProtectionOrder}'");
+                }
+            }
         }
     }
 }
