@@ -13,6 +13,7 @@ using System.ServiceModel.Description;
 using System.ServiceModel.Dispatcher;
 using System.ServiceModel.Security;
 using System.ServiceModel.Security.Tokens;
+using System.Text;
 
 namespace WcfUtilities
 {
@@ -103,6 +104,15 @@ namespace WcfUtilities
             if (securityBindingElement == null)
                 throw new InvalidOperationException($"{typeof(SecurityBindingElement)} not found in: {binding.GetType()}.");
 
+            SetMessageProtectionOrder(securityBindingElement, messageProtectionOrder);
+
+            return customBinding;
+        }
+
+        public static CustomBinding SetMessageProtectionOrder(Binding binding, MessageProtectionOrder messageProtectionOrder)
+        {
+            var customBinding = new CustomBinding(binding);
+            var securityBindingElement = GetSecurityBindingElement(customBinding);
             SetMessageProtectionOrder(securityBindingElement, messageProtectionOrder);
 
             return customBinding;
@@ -469,6 +479,7 @@ namespace WcfUtilities
             SetMaxTimeout(binding, TimeSpan.MaxValue);
         }
 
+
         public static void SetMessageProtectionOrder(SecurityBindingElement securityBindingElement, MessageProtectionOrder messageProtectionOrder)
         {
             var ssbe = securityBindingElement as SymmetricSecurityBindingElement;
@@ -484,8 +495,6 @@ namespace WcfUtilities
                 asbe.MessageProtectionOrder = messageProtectionOrder;
                 return;
             }
-
-            throw new InvalidOperationException($"Unable to set 'MessageProtectionOrder' on securityBindingElement: {securityBindingElement}");
         }
 
         public static void SetSctCookieMode(CustomBinding customBinding, bool cookieMode)
@@ -574,6 +583,36 @@ namespace WcfUtilities
                         throw new InvalidOperationException($"{asbe.GetType()}.MessageProtectionOrder invalid. 'actual' : 'desired'. '{ssbe.MessageProtectionOrder}' : '{messageProtectionOrder}'");
                 }
             }
+        }
+
+        public static void ValidateMessageProtectionOrder(ServiceHost serviceHost, MessageProtectionOrder messageProtectionOrder)
+        {
+            var bindingErrors = new StringBuilder();
+            foreach (ServiceEndpoint endpoint in serviceHost.Description.Endpoints)
+            {
+                BindingElementCollection bindingElements = endpoint.Binding.CreateBindingElements();
+                var sbe = bindingElements.Find<SecurityBindingElement>();
+                if (sbe != null)
+                {
+                    var ssbe = sbe as SymmetricSecurityBindingElement;
+                    if (ssbe != null)
+                    {
+                        if (ssbe.MessageProtectionOrder != messageProtectionOrder)
+                            bindingErrors.Append($"{Environment.NewLine}BindingName: {endpoint.Name}, MessageProtectionOrder: {ssbe.MessageProtectionOrder}.");
+                    }
+
+                    var asbe = sbe as AsymmetricSecurityBindingElement;
+                    if (asbe != null)
+                    {
+                        if (asbe.MessageProtectionOrder != messageProtectionOrder)
+                            bindingErrors.Append($"{Environment.NewLine}BindingName: {endpoint.Name}, MessageProtectionOrder: {asbe.MessageProtectionOrder}.");
+                    }
+                }
+            }
+
+            if (bindingErrors.Length > 0)
+                throw new Exception($"Some bindings do not have MessgeProtectionOrder set to: '{messageProtectionOrder}': {Environment.NewLine}{bindingErrors}");
+
         }
     }
 }

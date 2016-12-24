@@ -62,7 +62,7 @@ namespace Microsoft.Samples.ServiceModel
             }
 
             if (bindingErrors.Length > 0)
-                throw new Exception($"Some bindings do not have MessgeProtectionOrder set to: '{MessageProtectionOrder.EncryptBeforeSign}': {Environment.NewLine}{bindingErrors}");
+                throw new Exception($"Some bindings do not have MessgeProtectionOrder set to: '{_messageProtectionOrder}': {Environment.NewLine}{bindingErrors}");
         }
     }
 }
