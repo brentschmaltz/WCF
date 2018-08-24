@@ -1,4 +1,6 @@
-﻿// ----------------------------------------------------------------------------
+﻿#define MessageTransform
+
+// ----------------------------------------------------------------------------
 // Specifying IssuerSerial in KeyInfo 
 // ----------------------------------------------------------------------------
 
@@ -9,11 +11,17 @@ using System.Security.Cryptography.X509Certificates;
 using System.ServiceModel;
 using System.ServiceModel.Channels;
 using System.ServiceModel.Description;
+using System.ServiceModel.Dispatcher;
 using System.ServiceModel.Security;
 using System.ServiceModel.Security.Tokens;
+using System.Xml;
 using WcfContracts;
-using WCFSecurityUtilities;
-using WcfUtilities;
+//using WcfUtilities;
+
+// helpful links
+// https://blogs.msdn.microsoft.com/distributedservices/2010/06/14/wcf-interoperability-guidelines-1-reference-style-of-a-primary-signing-token-inside-a-response/
+// https://stackoverflow.com/questions/9160503/java-client-to-wcf-service-interop-with-mutual-certificate-cannot-resolve-keyi
+// https://docs.microsoft.com/en-us/previous-versions/dotnet/netframework-3.5/aa967568(v=vs.90)
 
 namespace IssuerSerialKeyInfo
 {
@@ -22,56 +30,53 @@ namespace IssuerSerialKeyInfo
         static void Main(string[] args)
         {
             var hostName = "SelfHostSts";
-            var certDnsName = $"CN={hostName}";
+            var hostCertDnsName = $"CN={hostName}";
+            var clientCertDnsName = "CN=ClientCredential";
             var baseAddress = "http://127.0.0.1:8080/IssuerSerial";
-            var binding = AsymmetricMutualCertIssuerSerial();
-
-            //var binding = new WSHttpBinding(SecurityMode.Message, false);
-
-            //binding.Security.Message.ClientCredentialType = MessageCredentialType.Certificate;
-            //binding.Security.Message.EstablishSecurityContext = false;
+            var serviceBinding = ServiceAsymmetricIssuerSerialBinding(
+                X509KeyIdentifierClauseType.RawDataKeyIdentifier,
+                SecurityTokenInclusionMode.AlwaysToInitiator,
+                MessageSecurityVersion.WSSecurity11WSTrust13WSSecureConversation13WSSecurityPolicy12);
 
             var serviceHost = new ServiceHost(typeof(RequestReplySign), new Uri(baseAddress));
-            serviceHost.AddServiceEndpoint(typeof(IRequestReplySign), binding, baseAddress);
-            serviceHost.Credentials.ServiceCertificate.SetCertificate(certDnsName, StoreLocation.LocalMachine, StoreName.My);
-            serviceHost.Credentials.IdentityConfiguration = new System.IdentityModel.Configuration.IdentityConfiguration
-            {
-                IssuerTokenResolver = new CustomSecurityTokenResolver(),
-                ServiceTokenResolver = new CustomSecurityTokenResolver()
-            };
-
-            // since we need to check the client cert, use a CustomX509CertificateValidator
-            serviceHost.Credentials.ClientCertificate.Authentication.CustomCertificateValidator = new CustomX509CertificateValidator();
+            serviceHost.AddServiceEndpoint(typeof(IRequestReplySign), serviceBinding, baseAddress);
+            serviceHost.Credentials.ServiceCertificate.SetCertificate(hostCertDnsName, StoreLocation.LocalMachine, StoreName.My);
             serviceHost.Credentials.ClientCertificate.Authentication.CertificateValidationMode = X509CertificateValidationMode.Custom;
-            serviceHost.Credentials.ClientCertificate.SetCertificate(certDnsName, StoreLocation.LocalMachine, StoreName.My);
-            if (serviceHost.Description.Behaviors.Find<ServiceMetadataBehavior>() == null)
-                BindingUtilities.AddMexEndpoint(serviceHost, baseAddress, true);
-
-         //   PlugableServiceCredentials psc = new PlugableServiceCredentials(serviceHost);
-         //   psc.SetSecurityTokenAuthenticator(SecurityTokenTypes.X509Certificate, new CustomSecurityTokenAuthenticator(), new CustomSecurityTokenResolver());
-         //   psc.SetSecuriyTokenProvider(SecurityTokenTypes.X509Certificate, new CustomSecurityTokenProvider());
-
+            serviceHost.Credentials.ClientCertificate.Authentication.CustomCertificateValidator = new CustomX509CertificateValidator();
             serviceHost.Open();
 
-            BindingUtilities.SetMaxTimeout(binding);
-            BindingUtilities.DisplayBindingInfoToConsole(serviceHost);
+            SetMaxTimeout(serviceBinding);
+            DisplayBindingInfoToConsole(serviceHost);
 
             // WCF checks outbound identity, since we are sending to "http://127.0.0.1:8080/IssuerSerial", WCF will throw outbound.
             // explicitly setting this DNS address, tells WCF, it's OK
             var epi = EndpointIdentity.CreateDnsIdentity(hostName);
             var epa = new EndpointAddress(new Uri(baseAddress), epi, new AddressHeaderCollection());
-            var channelFactory = new ChannelFactory<IRequestReplySign>(binding, epa);
 
-            // since we are negotiating the server credential use a CustomX509CertificateValidator to validate the cert
-            channelFactory.Credentials.ClientCertificate.SetCertificate(certDnsName, StoreLocation.LocalMachine, StoreName.My);
+#if MessageTransform
+            // causes KeyinfoFailure
+            var clientBinding = ClientAsymmetricIssuerSerialBinding(
+                X509KeyIdentifierClauseType.IssuerSerial,
+                SecurityTokenInclusionMode.AlwaysToInitiator,
+                MessageSecurityVersion.WSSecurity11WSTrust13WSSecureConversation13WSSecurityPolicy12);
+#else
+            //this succeeds on server, client fails unknown token.
+            var clientBinding = ClientAsymmetricIssuerSerialBinding(
+                X509KeyIdentifierClauseType.IssuerSerial,
+                SecurityTokenInclusionMode.AlwaysToInitiator,
+                MessageSecurityVersion.WSSecurity11WSTrust13WSSecureConversation13WSSecurityPolicy12);
+#endif
+            SetMaxTimeout(clientBinding);
+            var channelFactory = new ChannelFactory<IRequestReplySign>(clientBinding, epa);
+            channelFactory.Credentials.ClientCertificate.SetCertificate(clientCertDnsName, StoreLocation.LocalMachine, StoreName.My);
             channelFactory.Credentials.ServiceCertificate.Authentication.CertificateValidationMode = X509CertificateValidationMode.Custom;
             channelFactory.Credentials.ServiceCertificate.Authentication.CustomCertificateValidator = new CustomX509CertificateValidator();
-            channelFactory.Credentials.ServiceCertificate.SetDefaultCertificate(certDnsName, StoreLocation.LocalMachine, StoreName.My);
+            channelFactory.Credentials.ServiceCertificate.SetDefaultCertificate(hostCertDnsName, StoreLocation.LocalMachine, StoreName.My);
             var clientChannel = channelFactory.CreateChannel();
 
             try
             {
-                var outbound = "SendString";
+                var outbound = "Client SendString";
                 Console.WriteLine($"Client sending: '{outbound}'");
                 Console.WriteLine($"Client received: '{clientChannel.SendString(outbound)}'");
             }
@@ -84,50 +89,60 @@ namespace IssuerSerialKeyInfo
             Console.ReadKey();
         }
 
-        public static Binding AsymmetricMutualCertIssuerSerial()
+        public static Binding ServiceAsymmetricIssuerSerialBinding(
+            X509KeyIdentifierClauseType clauseType,
+            SecurityTokenInclusionMode inclusionMode,
+            MessageSecurityVersion messageSecurityVersion)
         {
-            // returns AsymmetricSecurityBindingElement as WSecurity == 1.0
-            var sb10 = SecurityBindingElement.CreateMutualCertificateBindingElement(MessageSecurityVersion.WSSecurity10WSTrust13WSSecureConversation13WSSecurityPolicy12BasicSecurityProfile10);
-
-            // returns SymmetricSecurityBindingElement as WSecurity != 1.0, this is unexpected
-            var sb11 = SecurityBindingElement.CreateMutualCertificateBindingElement(MessageSecurityVersion.WSSecurity11WSTrustFebruary2005WSSecureConversationFebruary2005WSSecurityPolicy11);
-
-            // returns AsymmetricSecurityBindingElement even though WSSecurity == 1.1
-            var sb11D = SecurityBindingElement.CreateMutualCertificateDuplexBindingElement(MessageSecurityVersion.WSSecurity11WSTrustFebruary2005WSSecureConversationFebruary2005WSSecurityPolicy11);
-
             return new CustomBinding(
-                new AsymmetricSecurityBindingElement(
-                    new X509SecurityTokenParameters(X509KeyIdentifierClauseType.IssuerSerial)
-                    {
-                        InclusionMode = SecurityTokenInclusionMode.AlwaysToInitiator,
-                        X509ReferenceStyle = X509KeyIdentifierClauseType.IssuerSerial
-                    },
-                    new X509SecurityTokenParameters(X509KeyIdentifierClauseType.IssuerSerial)
-                    {
-                        InclusionMode = SecurityTokenInclusionMode.AlwaysToInitiator,
-                        X509ReferenceStyle = X509KeyIdentifierClauseType.IssuerSerial
-                    }
-                ),
+                new AsymmetricSecurityBindingElement
+                (
+                    new X509SecurityTokenParameters(clauseType, inclusionMode),
+                    new X509SecurityTokenParameters(clauseType, inclusionMode)
+                )
+                {
+                    MessageSecurityVersion = messageSecurityVersion
+                },
+#if MessageTransform
+                new InterceptingBindingElement(),
+#endif
+                new HttpTransportBindingElement());
+        }
+
+        public static Binding ClientAsymmetricIssuerSerialBinding(
+            X509KeyIdentifierClauseType clauseType,
+            SecurityTokenInclusionMode inclusionMode,
+            MessageSecurityVersion messageSecurityVersion)
+        {
+            return new CustomBinding(
+                new AsymmetricSecurityBindingElement
+                (
+                    new X509SecurityTokenParameters(clauseType, SecurityTokenInclusionMode.AlwaysToRecipient),
+                    new X509SecurityTokenParameters(clauseType, inclusionMode)
+                )
+                {
+                    MessageSecurityVersion = messageSecurityVersion
+                },
                 new HttpTransportBindingElement()
             );
         }
-    }
 
-    public class CustomSecurityTokenResolver : SecurityTokenResolver
-    {
-        protected override bool TryResolveSecurityKeyCore(SecurityKeyIdentifierClause keyIdentifierClause, out SecurityKey key)
+        public static void SetMaxTimeout(System.ServiceModel.Channels.Binding binding)
         {
-            throw new NotImplementedException();
+            binding.CloseTimeout = TimeSpan.MaxValue;
+            binding.OpenTimeout = TimeSpan.MaxValue;
+            binding.ReceiveTimeout = TimeSpan.MaxValue;
+            binding.SendTimeout = TimeSpan.MaxValue;
         }
 
-        protected override bool TryResolveTokenCore(SecurityKeyIdentifier keyIdentifier, out SecurityToken token)
+        public static void DisplayBindingInfoToConsole(ServiceHost serviceHost)
         {
-            throw new NotImplementedException();
-        }
-
-        protected override bool TryResolveTokenCore(SecurityKeyIdentifierClause keyIdentifierClause, out SecurityToken token)
-        {
-            throw new NotImplementedException();
+            for (int i = 0; i < serviceHost.ChannelDispatchers.Count; i++)
+            {
+                if (serviceHost.ChannelDispatchers[i] is ChannelDispatcher channelDispatcher)
+                    for (int j = 0; j < channelDispatcher.Endpoints.Count; j++)
+                        Console.WriteLine("Listening on " + channelDispatcher.Endpoints[j].EndpointAddress + "...");
+            }
         }
     }
 
