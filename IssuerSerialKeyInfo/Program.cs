@@ -5,18 +5,13 @@
 // ----------------------------------------------------------------------------
 
 using System;
-using System.IdentityModel.Selectors;
-using System.IdentityModel.Tokens;
 using System.Security.Cryptography.X509Certificates;
 using System.ServiceModel;
 using System.ServiceModel.Channels;
-using System.ServiceModel.Description;
 using System.ServiceModel.Dispatcher;
 using System.ServiceModel.Security;
 using System.ServiceModel.Security.Tokens;
-using System.Xml;
 using WcfContracts;
-//using WcfUtilities;
 
 // helpful links
 // https://blogs.msdn.microsoft.com/distributedservices/2010/06/14/wcf-interoperability-guidelines-1-reference-style-of-a-primary-signing-token-inside-a-response/
@@ -33,7 +28,7 @@ namespace IssuerSerialKeyInfo
             var hostCertDnsName = $"CN={hostName}";
             var clientCertDnsName = "CN=ClientCredential";
             var baseAddress = "http://127.0.0.1:8080/IssuerSerial";
-            var serviceBinding = ServiceAsymmetricIssuerSerialBinding(
+            var serviceBinding = ServiceAsymmetricBinding(
                 X509KeyIdentifierClauseType.RawDataKeyIdentifier,
                 SecurityTokenInclusionMode.AlwaysToInitiator,
                 MessageSecurityVersion.WSSecurity11WSTrust13WSSecureConversation13WSSecurityPolicy12);
@@ -41,8 +36,10 @@ namespace IssuerSerialKeyInfo
             var serviceHost = new ServiceHost(typeof(RequestReplySign), new Uri(baseAddress));
             serviceHost.AddServiceEndpoint(typeof(IRequestReplySign), serviceBinding, baseAddress);
             serviceHost.Credentials.ServiceCertificate.SetCertificate(hostCertDnsName, StoreLocation.LocalMachine, StoreName.My);
-            serviceHost.Credentials.ClientCertificate.Authentication.CertificateValidationMode = X509CertificateValidationMode.Custom;
-            serviceHost.Credentials.ClientCertificate.Authentication.CustomCertificateValidator = new CustomX509CertificateValidator();
+            // normally one would check cert from request but since the MessageModifier is responsible for intercepting the
+            // message and adds embedded 'BinaryBinarySecurityToken' from a certificate found from the IssuerSerial
+            // we can assume the caller is trusted
+            serviceHost.Credentials.ClientCertificate.Authentication.CertificateValidationMode = X509CertificateValidationMode.None;
             serviceHost.Open();
 
             SetMaxTimeout(serviceBinding);
@@ -53,24 +50,15 @@ namespace IssuerSerialKeyInfo
             var epi = EndpointIdentity.CreateDnsIdentity(hostName);
             var epa = new EndpointAddress(new Uri(baseAddress), epi, new AddressHeaderCollection());
 
-#if MessageTransform
-            // causes KeyinfoFailure
+            // causes KeyinfoFailure if 'MessageTransform' is not set
             var clientBinding = ClientAsymmetricIssuerSerialBinding(
                 X509KeyIdentifierClauseType.IssuerSerial,
                 SecurityTokenInclusionMode.AlwaysToInitiator,
                 MessageSecurityVersion.WSSecurity11WSTrust13WSSecureConversation13WSSecurityPolicy12);
-#else
-            //this succeeds on server, client fails unknown token.
-            var clientBinding = ClientAsymmetricIssuerSerialBinding(
-                X509KeyIdentifierClauseType.IssuerSerial,
-                SecurityTokenInclusionMode.AlwaysToInitiator,
-                MessageSecurityVersion.WSSecurity11WSTrust13WSSecureConversation13WSSecurityPolicy12);
-#endif
+
             SetMaxTimeout(clientBinding);
             var channelFactory = new ChannelFactory<IRequestReplySign>(clientBinding, epa);
             channelFactory.Credentials.ClientCertificate.SetCertificate(clientCertDnsName, StoreLocation.LocalMachine, StoreName.My);
-            channelFactory.Credentials.ServiceCertificate.Authentication.CertificateValidationMode = X509CertificateValidationMode.Custom;
-            channelFactory.Credentials.ServiceCertificate.Authentication.CustomCertificateValidator = new CustomX509CertificateValidator();
             channelFactory.Credentials.ServiceCertificate.SetDefaultCertificate(hostCertDnsName, StoreLocation.LocalMachine, StoreName.My);
             var clientChannel = channelFactory.CreateChannel();
 
@@ -89,7 +77,7 @@ namespace IssuerSerialKeyInfo
             Console.ReadKey();
         }
 
-        public static Binding ServiceAsymmetricIssuerSerialBinding(
+        public static Binding ServiceAsymmetricBinding(
             X509KeyIdentifierClauseType clauseType,
             SecurityTokenInclusionMode inclusionMode,
             MessageSecurityVersion messageSecurityVersion)
@@ -117,7 +105,7 @@ namespace IssuerSerialKeyInfo
             return new CustomBinding(
                 new AsymmetricSecurityBindingElement
                 (
-                    new X509SecurityTokenParameters(clauseType, SecurityTokenInclusionMode.AlwaysToRecipient),
+                    new X509SecurityTokenParameters(clauseType, inclusionMode),
                     new X509SecurityTokenParameters(clauseType, inclusionMode)
                 )
                 {
@@ -143,14 +131,6 @@ namespace IssuerSerialKeyInfo
                     for (int j = 0; j < channelDispatcher.Endpoints.Count; j++)
                         Console.WriteLine("Listening on " + channelDispatcher.Endpoints[j].EndpointAddress + "...");
             }
-        }
-    }
-
-    public class CustomX509CertificateValidator : X509CertificateValidator
-    {
-        public override void Validate(X509Certificate2 certificate)
-        {
-            // put in code to check cert
         }
     }
 }
