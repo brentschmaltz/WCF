@@ -122,10 +122,7 @@ publish/
 *.azurePubxml
 
 # NuGet Packages Directory
-## TODO: If you have NuGet Package Restore enabled, uncomment the next line
-#packages/
-## TODO: If the tool you use requires repositories.config, also uncomment the next line
-#!packages/repositories.config
+packages/
 
 # Windows Azure Build Output
 csx/
@@ -197,17 +194,10 @@ StyleCop.Cache
 node_modules
 *.snk
 
-# Wilson project folder
+# project folder
 .nuget/*
 *.xml
-Artifacts/*
-build/*
 lib/*
-log
-packages/*
-stash/*
-TestResults/*
 docs/*
-backup/*
-.testPublish/
 /.vs/
+*.vs
