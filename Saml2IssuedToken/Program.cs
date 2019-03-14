@@ -32,11 +32,12 @@ using System.IdentityModel.Tokens;
 using System.Net;
 using System.Net.Security;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.ServiceModel;
 using System.ServiceModel.Channels;
 using System.ServiceModel.Security;
-using WcfKeys;
+using WcfUtilities;
 
 // setup http.sys with cert that has DNS "CN=localhost" and thumbprint == 5008e9b6f4995c472a67c16cc18dad36acf4be38
 // httpcfg.exe set ssl -i 127.0.0.1:443 -h 5008e9b6f4995c472a67c16cc18dad36acf4be38
@@ -60,10 +61,12 @@ namespace Saml2IssuedToken
             var endpointAddress = new EndpointAddress(serviceAddress);
             SetMaxTimeout(binding);
 
+            var cert = CertificateUtilities.GetCertificate(StoreName.My, StoreLocation.LocalMachine, X509FindType.FindByThumbprint, "fefced16e5ee7ad09e2938e82263c7ae6498ce82");
+
             // Service
             var serviceHost = new ServiceHost(typeof(RequestReply), new Uri(serviceAddress));
             serviceHost.AddServiceEndpoint(typeof(IRequestReply), binding, serviceAddress);
-            serviceHost.Credentials.ServiceCertificate.SetCertificate("CN=localhost", StoreLocation.LocalMachine, StoreName.My);
+            serviceHost.Credentials.ServiceCertificate.Certificate = cert;
             serviceHost.Credentials.UseIdentityConfiguration = true;
             serviceHost.Credentials.IdentityConfiguration.AudienceRestriction.AudienceMode = AudienceUriMode.Never;
             serviceHost.Credentials.IdentityConfiguration.CertificateValidationMode = X509CertificateValidationMode.None;
@@ -73,7 +76,7 @@ namespace Saml2IssuedToken
             // Client
             var clientChannelFactory = new ChannelFactory<IRequestReply>(binding, endpointAddress);
             clientChannelFactory.Credentials.UseIdentityConfiguration = true;
-            var client = clientChannelFactory.CreateChannelWithIssuedToken(GetSaml2Token(_authority));
+            var client = clientChannelFactory.CreateChannelWithIssuedToken(GetSamlToken(cert, _authority));
             try
             {
                 Console.WriteLine(string.Format(@"Client received from server: '{0}'", client.SendString("hello from client.")));
@@ -87,31 +90,56 @@ namespace Saml2IssuedToken
             Console.ReadKey();
         }
 
-        static Saml2SecurityToken GetSaml2Token(string issuer)
+        static SecurityToken GetSamlToken(X509Certificate2 cert, string issuer)
         {
-            var claims = new List<Claim>
-            {
-                new Claim(ClaimTypes.Country, "USA", ClaimValueTypes.String, issuer, issuer),
-                new Claim(ClaimTypes.NameIdentifier, "Bob", ClaimValueTypes.String, issuer, issuer),
-                new Claim(ClaimTypes.Email, "Bob@contoso.com", ClaimValueTypes.String, issuer, issuer),
-                new Claim(ClaimTypes.GivenName, "Bob", ClaimValueTypes.String, issuer, issuer),
-                new Claim(ClaimTypes.HomePhone, "555.1212", ClaimValueTypes.String, issuer, issuer),
-                new Claim(ClaimTypes.Role, "Developer", ClaimValueTypes.String, issuer, issuer),
-                new Claim(ClaimTypes.Role, "Sales", ClaimValueTypes.String, issuer, issuer),
-                new Claim(ClaimTypes.StreetAddress, "123AnyWhereStreet/r/nSomeTown/r/nUSA", ClaimValueTypes.String, issuer, issuer),
-                new Claim(ClaimsIdentity.DefaultNameClaimType, "Jean-Sébastien", ClaimValueTypes.String, issuer, issuer),
-            };
-
-            var subject = new ClaimsIdentity(claims);
             var tokenDescriptor = new SecurityTokenDescriptor
             {
-                SigningCredentials = new X509SigningCredentials(KeyMaterial.CertSelfSigned1024_SHA256),
-                Subject = subject,
+                SigningCredentials = CreateSigningCredentials(cert),
+                Subject = new ClaimsIdentity(new List<Claim>
+                {
+                    new Claim(ClaimTypes.NameIdentifier, "Bob"),
+                    new Claim(ClaimTypes.Email, "Bob@contoso.com"),
+                }),
                 TokenIssuerName = issuer
             };
-            var tokenHandler = new Saml2SecurityTokenHandler();
-            return tokenHandler.CreateToken(tokenDescriptor) as Saml2SecurityToken;
+
+            return (new SamlSecurityTokenHandler()).CreateToken(tokenDescriptor);
         }
+
+        static SecurityToken GetSaml2Token(X509Certificate2 cert, string issuer)
+        {
+            var tokenDescriptor = new SecurityTokenDescriptor
+            {
+                SigningCredentials = CreateSigningCredentials(cert),
+                Subject = new ClaimsIdentity(new List<Claim>
+                {
+                    new Claim(ClaimTypes.NameIdentifier, "Bob"),
+                    new Claim(ClaimTypes.Email, "Bob@contoso.com"),
+                }),
+                TokenIssuerName = issuer
+            };
+
+            return (new Saml2SecurityTokenHandler()).CreateToken(tokenDescriptor) as Saml2SecurityToken;
+        }
+
+        static SigningCredentials CreateSigningCredentials(X509Certificate2 cert)
+        {
+            // create a symmetric key
+            var symmetricKey = new InMemorySymmetricSecurityKey(Aes.Create().Key, false);
+            var x509Key = new X509AsymmetricSecurityKey(cert);
+            var encryptedKey = x509Key.EncryptKey(SecurityAlgorithms.RsaV15KeyWrap, symmetricKey.GetSymmetricKey());
+            var encryptedKeyIdentifierClause = new EncryptedKeyIdentifierClause(encryptedKey, SecurityAlgorithms.RsaV15KeyWrap, new SecurityKeyIdentifier(new X509ThumbprintKeyIdentifierClause(cert)));
+            SecurityKeyIdentifier ski = new SecurityKeyIdentifier(new SecurityKeyIdentifierClause[]
+            {
+                    encryptedKeyIdentifierClause,
+                    new X509RawDataKeyIdentifierClause(cert.RawData)
+            });
+
+            // use symmetric key to sign the assertion
+            return new SigningCredentials(symmetricKey, SecurityAlgorithms.HmacSha256Signature, SecurityAlgorithms.Sha256Digest, ski);
+        }
+
+
 
         public static void SetMaxTimeout(Binding binding)
         {

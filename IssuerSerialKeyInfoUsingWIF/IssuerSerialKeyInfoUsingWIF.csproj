@@ -4,14 +4,13 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{9FAF2BA7-8AB8-4388-B53A-1031729773C5}</ProjectGuid>
+    <ProjectGuid>{5C097215-39F1-47F8-927C-26756C1A2291}</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>Saml2IssuedToken</RootNamespace>
-    <AssemblyName>Saml2IssuedToken</AssemblyName>
-    <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
+    <RootNamespace>IssuerSerialKeyInfo</RootNamespace>
+    <AssemblyName>IssuerSerialKeyInfo</AssemblyName>
+    <TargetFrameworkVersion>v4.6.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <Deterministic>true</Deterministic>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -36,7 +35,9 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.IdentityModel" />
+    <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.ServiceModel" />
+    <Reference Include="System.ServiceModel.Channels" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
@@ -45,11 +46,18 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\Utilities\CertificateUtilities.cs">
-      <Link>CertificateUtilities.cs</Link>
-    </Compile>
+    <Compile Include="AsyncResult.cs" />
+    <Compile Include="ChainedAsyncResult.cs" />
+    <Compile Include="MessageModifier.cs" />
+    <Compile Include="InterceptingBindingElement.cs" />
+    <Compile Include="InterceptingChannelBase.cs" />
+    <Compile Include="InterceptingChannelFactory.cs" />
+    <Compile Include="InterceptingChannelListener.cs" />
+    <Compile Include="InterceptingDuplexChannel.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="RequestReply.cs" />
+    <Compile Include="TimeoutHelper.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

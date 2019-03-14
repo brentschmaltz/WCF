@@ -80,21 +80,36 @@ namespace WcfUtilities
                 Console.WriteLine("Can't add MexEndpoint");
         }
 
-        static Binding BuildBinding(SecurityBindingElement sbe)
+        public static void AllowSerializedSigningTokenOnReply(CustomBinding customBinding, bool allowSerializedSigningTokenOnReply)
         {
-            sbe.MessageSecurityVersion = MessageSecurityVersion.WSSecurity11WSTrust13WSSecureConversation13WSSecurityPolicy12;
-            var bec = new BindingElementCollection();
+            var securityBindingElement = GetSecurityBindingElement(customBinding);
+            if (securityBindingElement == null)
+                throw new ArgumentException("customBinding does not have a SecurityBindingElement");
 
-            bec.Add(sbe);
-            bec.Add(new TextMessageEncodingBindingElement());
-            bec.Add(new HttpTransportBindingElement());
+            if (!(securityBindingElement is AsymmetricSecurityBindingElement asymmetricSecurityBindingElement))
+                throw new ArgumentException("customBinding does not have an AsymmetricBindingElement");
 
-            CustomBinding binding = new CustomBinding(bec);
-            binding.Name = "WcfUtilities.CustomBinding";
-            binding.Namespace = "http://IdentityModel.samples.org";
+            asymmetricSecurityBindingElement.AllowSerializedSigningTokenOnReply = true;
+        }
 
-            return binding;
+        public static CustomBinding BuildBinding(SecurityBindingElement sbe)
+        {
+            return BuildBinding(sbe, MessageSecurityVersion.WSSecurity11WSTrust13WSSecureConversation13WSSecurityPolicy12);
+        }
 
+        public static CustomBinding BuildBinding(SecurityBindingElement sbe, MessageSecurityVersion messageSecurityVersion)
+        {
+            sbe.MessageSecurityVersion = messageSecurityVersion;
+            return new CustomBinding(new BindingElementCollection
+            {
+                sbe,
+                new TextMessageEncodingBindingElement(),
+                new HttpTransportBindingElement()
+            })
+            {
+                Name = "WcfUtilities.CustomBinding",
+                Namespace = "http://IdentityModel.samples.org"
+            };
         }
 
         public static CustomBinding CreateCustomBindingWithMessageProtectionOrder(WSHttpBinding binding, MessageProtectionOrder messageProtectionOrder)
@@ -107,24 +122,6 @@ namespace WcfUtilities
             SetMessageProtectionOrder(securityBindingElement, messageProtectionOrder);
 
             return customBinding;
-        }
-
-        public static CustomBinding SetMessageProtectionOrder(Binding binding, MessageProtectionOrder messageProtectionOrder)
-        {
-            var customBinding = new CustomBinding(binding);
-            var securityBindingElement = GetSecurityBindingElement(customBinding);
-            SetMessageProtectionOrder(securityBindingElement, messageProtectionOrder);
-
-            return customBinding;
-        }
-
-        public static void SetMessageProtectionOrder(CustomBinding customBinding, MessageProtectionOrder messageProtectionOrder)
-        {
-            var securityBindingElement = GetSecurityBindingElement(customBinding);
-            if (securityBindingElement == null)
-                throw new InvalidOperationException($"{typeof(SecurityBindingElement)} not found in: {customBinding.GetType()}.");
-
-            SetMessageProtectionOrder(securityBindingElement, messageProtectionOrder);
         }
 
         // This method creates a CustomBinding based on a WSFederationHttpBinding which does not use secure conversation.
@@ -214,95 +211,6 @@ namespace WcfUtilities
             }
         }
 
-        public static Binding GetKerbOneShotBinding()
-        {
-            var sbe = SecurityBindingElement.CreateKerberosBindingElement();
-            sbe.RequireSignatureConfirmation = false;
-            sbe.KeyEntropyMode = SecurityKeyEntropyMode.CombinedEntropy;
-
-            return BuildBinding(sbe);
-        }
-
-        public static Binding GetMutualCertBinding()
-        {
-            var sbe = SecurityBindingElement.CreateMutualCertificateBindingElement();
-            sbe.KeyEntropyMode = SecurityKeyEntropyMode.CombinedEntropy;
-
-            return BuildBinding(sbe);
-        }
-
-        public static Binding GetStsSspiBinding()
-        {
-            var ssbe = SecurityBindingElement.CreateSspiNegotiationBindingElement(true);
-            ssbe.RequireSignatureConfirmation = false;
-            ssbe.KeyEntropyMode = SecurityKeyEntropyMode.CombinedEntropy;
-
-            return BuildBinding(ssbe);
-        }
-
-        public static Binding GetSymmetricIssuedBinding()
-        {
-            var bec = new BindingElementCollection();
-            var securityBindingElment = new SymmetricSecurityBindingElement(new IssuedSecurityTokenParameters());
-            bec.Add(securityBindingElment);
-            bec.Add(new TextMessageEncodingBindingElement());
-            bec.Add(new HttpTransportBindingElement());
-            var cb = new CustomBinding(bec);
-
-            cb.Name = "WcfUtilities.GetSymmetricIssuedBinding";
-            cb.Namespace = "http://tempuri.org/Service";
-
-            return cb;
-        }
-
-        public static Binding GetStsIssuedTokenBinding()
-        {
-            var istp = new IssuedSecurityTokenParameters(SecurityTokenTypes.Saml);
-            var sbe = SecurityBindingElement.CreateIssuedTokenBindingElement(istp);
-            sbe.KeyEntropyMode = SecurityKeyEntropyMode.CombinedEntropy;
-
-            return BuildBinding(sbe);
-        }
-
-        public static SecurityBindingElement GetSecurityBindingElement(BindingElementCollection bec)
-        {
-            foreach (BindingElement be in bec)
-            {
-                var sbe = be as SecurityBindingElement;
-                if (sbe != null)
-                {
-                    return sbe;
-                }
-            }
-
-            return null;
-        }
-
-        public static CustomBinding GetSspiBinding()
-        {
-            var bindingElements = new Collection<BindingElement>();
-            var security = SecurityBindingElement.CreateSecureConversationBindingElement(SecurityBindingElement.CreateSspiNegotiationBindingElement(true), true);
-            bindingElements.Add(security);
-            var http = new HttpTransportBindingElement();
-            bindingElements.Add(http);
-
-            var binding = new CustomBinding(bindingElements);
-            binding.Name = "WcfUtilities.GetSspiBinding";
-            binding.Namespace = "http://tempuri.org/bindings";
-            return binding;
-        }
-
-        public static SecurityBindingElement GetSecurityBindingElement(CustomBinding customBinding)
-        {
-            for (int i = 0; i < customBinding.Elements.Count; i++)
-            {
-                if (customBinding.Elements[i] is SecurityBindingElement)
-                    return customBinding.Elements[i] as SecurityBindingElement;
-            }
-
-            return null;
-        }
-
         public static Binding GetBinding(string binding)
         {
             switch (binding)
@@ -339,7 +247,95 @@ namespace WcfUtilities
             }
 
             throw new ArgumentOutOfRangeException("binding", binding, "Unknown Binding");
+        }
 
+        public static Binding GetKerbOneShotBinding()
+        {
+            var sbe = SecurityBindingElement.CreateKerberosBindingElement();
+            sbe.RequireSignatureConfirmation = false;
+            sbe.KeyEntropyMode = SecurityKeyEntropyMode.CombinedEntropy;
+
+            return BuildBinding(sbe);
+        }
+
+        public static Binding GetMutualCertBinding()
+        {
+            var sbe = SecurityBindingElement.CreateMutualCertificateBindingElement();
+            sbe.KeyEntropyMode = SecurityKeyEntropyMode.CombinedEntropy;
+
+            return BuildBinding(sbe);
+        }
+
+        public static SecurityBindingElement GetSecurityBindingElement(BindingElementCollection bec)
+        {
+            foreach (BindingElement be in bec)
+            {
+                var sbe = be as SecurityBindingElement;
+                if (sbe != null)
+                {
+                    return sbe;
+                }
+            }
+
+            return null;
+        }
+
+        public static SecurityBindingElement GetSecurityBindingElement(CustomBinding customBinding)
+        {
+            for (int i = 0; i < customBinding.Elements.Count; i++)
+            {
+                if (customBinding.Elements[i] is SecurityBindingElement)
+                    return customBinding.Elements[i] as SecurityBindingElement;
+            }
+
+            return null;
+        }
+
+        public static Binding GetStsSspiBinding()
+        {
+            var ssbe = SecurityBindingElement.CreateSspiNegotiationBindingElement(true);
+            ssbe.RequireSignatureConfirmation = false;
+            ssbe.KeyEntropyMode = SecurityKeyEntropyMode.CombinedEntropy;
+
+            return BuildBinding(ssbe);
+        }
+
+        public static Binding GetSymmetricIssuedBinding()
+        {
+            var bec = new BindingElementCollection();
+            var securityBindingElment = new SymmetricSecurityBindingElement(new IssuedSecurityTokenParameters());
+            bec.Add(securityBindingElment);
+            bec.Add(new TextMessageEncodingBindingElement());
+            bec.Add(new HttpTransportBindingElement());
+            var cb = new CustomBinding(bec);
+
+            cb.Name = "WcfUtilities.GetSymmetricIssuedBinding";
+            cb.Namespace = "http://tempuri.org/Service";
+
+            return cb;
+        }
+
+        public static Binding GetStsIssuedTokenBinding()
+        {
+            var istp = new IssuedSecurityTokenParameters(SecurityTokenTypes.Saml);
+            var sbe = SecurityBindingElement.CreateIssuedTokenBindingElement(istp);
+            sbe.KeyEntropyMode = SecurityKeyEntropyMode.CombinedEntropy;
+
+            return BuildBinding(sbe);
+        }
+
+        public static CustomBinding GetSspiBinding()
+        {
+            var bindingElements = new Collection<BindingElement>();
+            var security = SecurityBindingElement.CreateSecureConversationBindingElement(SecurityBindingElement.CreateSspiNegotiationBindingElement(true), true);
+            bindingElements.Add(security);
+            var http = new HttpTransportBindingElement();
+            bindingElements.Add(http);
+
+            var binding = new CustomBinding(bindingElements);
+            binding.Name = "WcfUtilities.GetSspiBinding";
+            binding.Namespace = "http://tempuri.org/bindings";
+            return binding;
         }
 
         public static IssuedSecurityTokenParameters IssuedSecurityTokenParameters(string issuerAddress, Binding binding, SecurityKeyType keyType, string tokenType)
@@ -479,6 +475,23 @@ namespace WcfUtilities
             SetMaxTimeout(binding, TimeSpan.MaxValue);
         }
 
+        public static CustomBinding SetMessageProtectionOrder(Binding binding, MessageProtectionOrder messageProtectionOrder)
+        {
+            var customBinding = new CustomBinding(binding);
+            var securityBindingElement = GetSecurityBindingElement(customBinding);
+            SetMessageProtectionOrder(securityBindingElement, messageProtectionOrder);
+
+            return customBinding;
+        }
+
+        public static void SetMessageProtectionOrder(CustomBinding customBinding, MessageProtectionOrder messageProtectionOrder)
+        {
+            var securityBindingElement = GetSecurityBindingElement(customBinding);
+            if (securityBindingElement == null)
+                throw new InvalidOperationException($"{typeof(SecurityBindingElement)} not found in: {customBinding.GetType()}.");
+
+            SetMessageProtectionOrder(securityBindingElement, messageProtectionOrder);
+        }
 
         public static void SetMessageProtectionOrder(SecurityBindingElement securityBindingElement, MessageProtectionOrder messageProtectionOrder)
         {
@@ -495,6 +508,15 @@ namespace WcfUtilities
                 asbe.MessageProtectionOrder = messageProtectionOrder;
                 return;
             }
+        }
+
+        public static void SetReplayDetection(CustomBinding customBinding, bool replayDetection)
+        {
+            var securityBindingElement = GetSecurityBindingElement(customBinding.Elements);
+            if (securityBindingElement == null)
+                throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "Unable to find '{0}' in customBinding", typeof(SecurityBindingElement)));
+
+            securityBindingElement.LocalServiceSettings.DetectReplays = replayDetection;
         }
 
         public static void SetSctCookieMode(CustomBinding customBinding, bool cookieMode)
@@ -531,15 +553,6 @@ namespace WcfUtilities
             throw new InvalidOperationException($"Unable to set SctCookieMode on customBinding: {customBinding}");
         }
 
-        public static void SetReplayDetection(CustomBinding customBinding, bool replayDetection)
-        {
-            var securityBindingElement = GetSecurityBindingElement(customBinding.Elements);
-            if (securityBindingElement == null)
-                throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "Unable to find '{0}' in customBinding", typeof(SecurityBindingElement)));
-
-            securityBindingElement.LocalServiceSettings.DetectReplays = replayDetection;
-        }
-
         public static void SetSecurityHeaderLayout(CustomBinding customBinding, SecurityHeaderLayout securityHeaderLayout)
         {
             var securityBindingElement = GetSecurityBindingElement(customBinding.Elements);
@@ -547,6 +560,23 @@ namespace WcfUtilities
                 throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "Unable to find '{0}' in customBinding", typeof(SecurityBindingElement)));
 
             securityBindingElement.SecurityHeaderLayout = securityHeaderLayout;
+        }
+
+        public static void SetSignatureConfirmation(CustomBinding customBinding, bool signatureConfirmation)
+        {
+            var securityBindingElement = GetSecurityBindingElement(customBinding.Elements);
+            if (securityBindingElement == null)
+                throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "Unable to find '{0}' in customBinding", typeof(SecurityBindingElement)));
+
+            if (securityBindingElement is AsymmetricSecurityBindingElement asymmetricBindingElement)
+            {
+                asymmetricBindingElement.RequireSignatureConfirmation = signatureConfirmation;
+            }
+            else if (securityBindingElement is SymmetricSecurityBindingElement symmetricBindingElement)
+            {
+                symmetricBindingElement.RequireSignatureConfirmation = signatureConfirmation;
+                symmetricBindingElement.ProtectionTokenParameters.RequireDerivedKeys = false;
+            }
         }
 
         public static bool TryGetSecurityBindingElement(CustomBinding customBinding, out SecurityBindingElement sbe)
