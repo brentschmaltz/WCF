@@ -21,8 +21,6 @@ namespace SelfHostSTS
         /// </summary>
         public SelfHostSecurityTokenServiceConfiguration()
         {
-
-            SecurityTokenHandlers.Add(new JwtSecurityTokenHandler());
             ConfigurationSection = SelfHostSecurityTokenServiceConfigurationSection.StsConfiguration;
             SecurityTokenHandlerCollectionManager[SecurityTokenHandlerCollectionManager.Usage.ActAs] = SecurityTokenHandlerCollection.CreateDefaultSecurityTokenHandlerCollection();
             SecurityTokenHandlerCollectionManager[SecurityTokenHandlerCollectionManager.Usage.OnBehalfOf] = SecurityTokenHandlerCollection.CreateDefaultSecurityTokenHandlerCollection();
@@ -30,7 +28,6 @@ namespace SelfHostSTS
             ServiceCertificate = new X509Certificate2(ConfigurationSection.SslPfxLocation, ConfigurationSection.SSLCertificatePassword, X509KeyStorageFlags.PersistKeySet);
             SecurityTokenService = typeof(SelfHostSecurityTokenService);
             TokenIssuerName = ConfigurationSection.IssuerName;
-            DefaultTokenType = "JWT";
         }
 
         public string BaseAddress => ConfigurationSection.BaseAddress;

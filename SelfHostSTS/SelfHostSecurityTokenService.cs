@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.IdentityModel;
 using System.IdentityModel.Configuration;
 using System.IdentityModel.Protocols.WSTrust;
