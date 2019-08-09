@@ -15,6 +15,7 @@ namespace SelfHostSTS
         private static string _endpointNameMessageIWA = "messageIWA";
         private static string _endpointNameMessageUserName = "messageUserName";
         private static string _endpointNameTransportIssuerSaml20 = "transportIssueSaml20";
+        private static string _endpointNameTransportIssuerSaml = "transportIssueSaml";
         private static string _endpointNameTransportUserName = "transportUserName";
 
         static void Main(string[] args)
@@ -81,8 +82,9 @@ namespace SelfHostSTS
         private static void AddWsTrustServiceBindings()
         {
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.TransportWithMessageCredential, false, HttpsWSTrust13Address, _endpointNameTransportIssuerSaml20, MessageCredentialType.IssuedToken);
+            AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.TransportWithMessageCredential, false, HttpsWSTrust13Address, _endpointNameTransportIssuerSaml, MessageCredentialType.IssuedToken);
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Message, false, HttpWSTrust13Address, _endpointNameMessageIWA, MessageCredentialType.Windows);
-            AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Transport, false, HttpsWSTrust13Address, _endpointNameTransportUserName, MessageCredentialType.UserName);
+            AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.TransportWithMessageCredential, false, HttpsWSTrust13Address, _endpointNameTransportUserName, MessageCredentialType.UserName);
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Message, false, HttpWSTrust13Address, _endpointNameMessageUserName, MessageCredentialType.UserName);
         }
 
@@ -124,6 +126,7 @@ namespace SelfHostSTS
             //WSTrustServiceHost.Credentials.IssuedTokenAuthentication.CertificateValidationMode = X509CertificateValidationMode.None;
             // sets validation mode for signed tokens received by the SecurityTokenService
             WSTrustServiceHost.SecurityTokenServiceConfiguration.AudienceRestriction.AudienceMode = System.IdentityModel.Selectors.AudienceUriMode.Never;
+            WSTrustServiceHost.SecurityTokenServiceConfiguration.SecurityTokenHandlers.AddOrReplace(new SelfHostUserNameSecurityTokenHandler());
             AddWsTrustServiceBindings();
         }
 

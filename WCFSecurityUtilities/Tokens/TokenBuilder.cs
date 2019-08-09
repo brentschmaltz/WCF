@@ -76,24 +76,15 @@ namespace WCFSecurityUtilities
 
         public static XmlElement GetRootElement(EncryptedSecurityToken encryptedSecurityToken)
         {
-            //var tokenHandler = new EncryptedSecurityTokenHandler();
             var handlerCollection = SecurityTokenHandlerCollection.CreateDefaultSecurityTokenHandlerCollection();
             var ms = new MemoryStream();
             var xmlWriter = XmlDictionaryWriter.CreateTextWriter(ms, Encoding.UTF8);
             handlerCollection.WriteToken(xmlWriter, encryptedSecurityToken);
             xmlWriter.Flush();
             var tokenString = Encoding.UTF8.GetString(ms.ToArray());
-            var xmlReader = XmlDictionaryReader.CreateTextReader(Encoding.UTF8.GetBytes(tokenString), XmlDictionaryReaderQuotas.Max);
-            //xmlReader.MoveToContent();
-            //ms.Seek(0, SeekOrigin.Begin);
+            var xmlReader = XmlDictionaryReader.CreateTextReader(ms.ToArray(), XmlDictionaryReaderQuotas.Max);
             var doc = new XmlDocument();
-            doc.ReadNode(xmlReader);
-//            return doc;
-
-            //tokenHandler.ContainingCollection = new SecurityTokenHandlerCollection();
-            //tokenHandler.ContainingCollection.Add(new SamlSecurityTokenHandler());
-  //          var doc = GetXmlDocument(encryptedSecurityToken, tokenHandler);
-            return doc.DocumentElement;
+            return doc.ReadNode(xmlReader) as XmlElement;
         }
 
         private static XmlElement GetRootElement(SecurityToken securityToken, SecurityTokenHandler securityTokenHandler)
@@ -103,7 +94,7 @@ namespace WCFSecurityUtilities
             securityTokenHandler.WriteToken(xmlWriter, securityToken);
             xmlWriter.Flush();
             var tokenString = Encoding.UTF8.GetString(ms.ToArray());
-            var xmlReader = XmlDictionaryReader.CreateTextReader(Encoding.UTF8.GetBytes(tokenString), XmlDictionaryReaderQuotas.Max);
+            var xmlReader = XmlDictionaryReader.CreateTextReader(ms.ToArray(), XmlDictionaryReaderQuotas.Max);
             var doc = new XmlDocument();
             return doc.ReadNode(xmlReader) as XmlElement;
         }

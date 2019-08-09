@@ -2,6 +2,7 @@ using System;
 using System.IdentityModel;
 using System.IdentityModel.Configuration;
 using System.IdentityModel.Protocols.WSTrust;
+using System.IdentityModel.Tokens;
 using System.Security.Claims;
 using System.ServiceModel;
 
@@ -47,6 +48,7 @@ namespace SelfHostSTS
             var scope = new Scope(request.AppliesTo.Uri.OriginalString, SecurityTokenServiceConfiguration.SigningCredentials)
             {
                 TokenEncryptionRequired = false,
+                //EncryptingCredentials = new X509EncryptingCredentials(SecurityTokenServiceConfiguration.ServiceCertificate),
                 SymmetricKeyEncryptionRequired = false
             };
 
