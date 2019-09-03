@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IdentityModel.Protocols.WSTrust;
+using System.IdentityModel.Selectors;
 using System.IdentityModel.Tokens;
 using System.Net;
 using System.Security.Cryptography;
@@ -9,6 +11,7 @@ using System.ServiceModel;
 using System.ServiceModel.Security;
 using System.ServiceModel.Security.Tokens;
 using System.Text;
+using System.Xml;
 using WCFSecurityUtilities;
 
 namespace WsTrustClient
@@ -48,6 +51,7 @@ namespace WsTrustClient
             trustChannelFactory.Credentials.SupportInteractive = false;
 
             var encryptingCert = new X509Certificate2("SelfHostSts.pfx", "SelfHostSts");
+            var signingCert = new X509Certificate2("SelfHostSTSMetadata.pfx", "SelfHostSTSMetadata");
             var symmetricSecurityKey = new InMemorySymmetricSecurityKey(Aes.Create().Key);
             var saml2SecurityToken = TokenBuilder.BuildSaml2SecurityToken(TokenBuilder.SamlClaimsIdentity, _serviceAddress, SelfSignedCert, encryptingCert, symmetricSecurityKey);
             var genericXmlToken = TokenBuilder.BuildGenericXmlSecurityTokenUsingEnryptedAssertion(saml2SecurityToken, symmetricSecurityKey);
@@ -72,8 +76,36 @@ namespace WsTrustClient
                 };
                 var genericTokenFromRstr = trustChannel.Issue(rst, out RequestSecurityTokenResponse response) as GenericXmlSecurityToken;
 
+                // Check key on RSTR == GenericXmlToken proof key
                 var symmetricKey = genericTokenFromRstr.SecurityKeys[0] as InMemorySymmetricSecurityKey;
-                var areEqual = Utilities.AreEqual(response.RequestedProofToken.ProtectedKey.GetKeyBytes(), symmetricKey.GetSymmetricKey());
+                var isProtectedKeySameAsSymmetricKey = Utilities.AreEqual(response.RequestedProofToken.ProtectedKey.GetKeyBytes(), symmetricKey.GetSymmetricKey());
+                Console.WriteLine($"isProtectedKeySameAsSymmetricKey: '{isProtectedKeySameAsSymmetricKey}'.");
+
+                // Check key on RSTR == Saml2 subjectConfirmationKey
+                var xmlReader = XmlDictionaryReader.CreateTextReader(Encoding.UTF8.GetBytes(genericTokenFromRstr.TokenXml.OuterXml), XmlDictionaryReaderQuotas.Max);
+                var saml = genericTokenFromRstr.TokenXml.OuterXml;
+
+                // configuration needs signing and encryption keys to read token
+                var issuerTokenResolver = SecurityTokenResolver.CreateDefaultSecurityTokenResolver((new List<SecurityToken> { new X509SecurityToken(signingCert) }).AsReadOnly(), true);
+                var serviceTokenResolver = SecurityTokenResolver.CreateDefaultSecurityTokenResolver((new List<SecurityToken> { new X509SecurityToken(encryptingCert) }).AsReadOnly(), true);
+                var configuration = new SecurityTokenHandlerConfiguration
+                {
+                    IssuerTokenResolver = issuerTokenResolver,
+                    ServiceTokenResolver = serviceTokenResolver
+                };
+
+                var saml2TokenHandler = new Saml2SecurityTokenHandler();
+                saml2TokenHandler.Configuration = configuration;
+                var saml2Token = saml2TokenHandler.ReadToken(xmlReader) as Saml2SecurityToken;
+
+                // get key from subject confirmation and validate
+                var subjectConfirmation = saml2Token.Assertion.Subject.SubjectConfirmations[0];
+                var encryptedKeyClause = (subjectConfirmation.SubjectConfirmationData.KeyIdentifiers[0])[0] as EncryptedKeyIdentifierClause;
+                var key = new X509AsymmetricSecurityKey(encryptingCert);
+                var clearKey = key.DecryptKey(SecurityAlgorithms.RsaOaepKeyWrap, encryptedKeyClause.GetEncryptedKey());
+                var isProtectedKeySameAsSaml2SymmetricKey = Utilities.AreEqual(response.RequestedProofToken.ProtectedKey.GetKeyBytes(), clearKey);
+
+                Console.WriteLine($"isProtectedKeySameAsSaml2SymmetricKey: '{isProtectedKeySameAsSaml2SymmetricKey}'.");
             }
             catch (Exception e)
             {
