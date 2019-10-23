@@ -45,10 +45,8 @@ namespace WcfContracts
         public string SendString(string message)
         {
             string outbound = string.Format("Service received: {0}", message);
-
             Console.WriteLine("Service received: '{0}'", message);
             Console.WriteLine("Service sending: '{0}'", outbound);
-
             return outbound;
         }
     }

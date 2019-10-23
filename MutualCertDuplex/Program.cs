@@ -29,8 +29,8 @@ namespace MutualCertDuplex
             BindingUtilities.SetReplayDetection(customBinding, false);
             BindingUtilities.AllowSerializedSigningTokenOnReply(customBinding, true);
 
-            var serviceHost = new ServiceHost(typeof(RequestReplyEncryptAndSign), new Uri(baseAddress));
-            serviceHost.AddServiceEndpoint(typeof(IRequestReplyEncryptAndSign), customBinding, baseAddress);
+            var serviceHost = new ServiceHost(typeof(RequestReplySign), new Uri(baseAddress));
+            serviceHost.AddServiceEndpoint(typeof(IRequestReplySign), customBinding, baseAddress);
             serviceHost.Credentials.ClientCertificate.Authentication.CertificateValidationMode = X509CertificateValidationMode.None;
             serviceHost.Credentials.ServiceCertificate.SetCertificate("CN=SelfSignedHost", StoreLocation.LocalMachine, StoreName.My);
 
@@ -41,7 +41,7 @@ namespace MutualCertDuplex
 
             BindingUtilities.DisplayBindingInfoToConsole(serviceHost);
 
-            var channelFactory = new ChannelFactory<IRequestReplyEncryptAndSign>(customBinding, epa);
+            var channelFactory = new ChannelFactory<IRequestReplySign>(customBinding, epa);
             channelFactory.Credentials.ServiceCertificate.SetDefaultCertificate("CN=SelfSignedHost", StoreLocation.LocalMachine, StoreName.My);
             channelFactory.Credentials.ClientCertificate.SetCertificate("CN=SelfSignedClient", StoreLocation.LocalMachine, StoreName.My);
             channelFactory.Credentials.UseIdentityConfiguration = true;

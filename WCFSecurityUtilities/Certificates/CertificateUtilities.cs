@@ -2,7 +2,7 @@ using System;
 using System.IdentityModel.Tokens;
 using System.Security.Cryptography.X509Certificates;
 
-namespace WCFSecurityUtilities
+namespace Microsoft.IdentityModel.S2S.AspNetCore.Extensions
 {
     public class CertificateUtilities
     {
