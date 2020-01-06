@@ -13,6 +13,7 @@ namespace SelfHostSTS
     class Program
     {
         private static string _endpointNameMessageIWA = "messageIWA";
+        private static string _endpointTransportIWA = "transportIWA";
         private static string _endpointNameMessageUserName = "messageUserName";
         private static string _endpointNameTransportIssuerSaml20 = "transportIssueSaml20";
         private static string _endpointNameTransportIssuerSaml = "transportIssueSaml";
@@ -86,6 +87,7 @@ namespace SelfHostSTS
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Message, false, HttpWSTrust13Address, _endpointNameMessageIWA, MessageCredentialType.Windows);
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.TransportWithMessageCredential, false, HttpsWSTrust13Address, _endpointNameTransportUserName, MessageCredentialType.UserName);
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Message, false, HttpWSTrust13Address, _endpointNameMessageUserName, MessageCredentialType.UserName);
+            AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Transport, false, HttpsWSTrust13Address, _endpointTransportIWA, MessageCredentialType.Windows);
         }
 
         private static SelfHostSecurityTokenServiceConfiguration Configuration { get; set; }
@@ -95,6 +97,7 @@ namespace SelfHostSTS
             // netsh>http add sslcert ipport=127.0.0.1:5443 certhash=9b74cb2f320f7aafc156e1252270b1dc01ef40d0 appid={98C671E2-050A-4D66-97DA-8C7AB80AFAC5}
             // netsh>http add sslcert ipport=127.0.0.1:5443 certhash=36622f03317f8ccf4ae5aa812255c6dd7cb13eff appid={98C671E2-050A-4D66-97DA-8C7AB80AFAC5}
             // netsh>http add sslcert ipport=127.0.0.1:5443 certhash=cfb894905fb847d8da1d3df6886ebe22b3b533d8 appid={98C671E2-050A-4D66-97DA-8C7AB80AFAC5}
+            // netsh>http add sslcert ipport=127.0.0.1:5443 certhash=2aa8722c73e8c88409203411b1ac80af8a8deb3a appid={98C671E2-050A-4D66-97DA-8C7AB80AFAC5}
 
             Configuration = new SelfHostSecurityTokenServiceConfiguration();
             Configuration.CertificateValidationMode = X509CertificateValidationMode.None;
