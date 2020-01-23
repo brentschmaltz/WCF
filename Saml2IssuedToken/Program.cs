@@ -26,13 +26,9 @@
 //------------------------------------------------------------------------------
 
 using System;
-using System.Collections.Generic;
-using System.IdentityModel.Selectors;
 using System.IdentityModel.Tokens;
 using System.Net;
 using System.Net.Security;
-using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.ServiceModel;
 using System.ServiceModel.Channels;
@@ -47,99 +43,55 @@ namespace Saml2IssuedToken
 {
     class Program
     {
-        static string serviceAddress = "https://127.0.0.1:443/IssuedTokenUsingTls";
-        static string _authority = "https://authority.sts.com";
+        static string _authority = "https://127.0.0.1:5443/WsTrust13/transportIWA";
+        static string _saml11 = "http://docs.oasis-open.org/wss/oasis-wss-saml-token-profile-1.1#SAMLV1.1";
+        static string _saml20 = "http://docs.oasis-open.org/wss/oasis-wss-saml-token-profile-1.1#SAMLV2.0";
+        static string _serviceAddress = "https://127.0.0.1:443/IssuedTokenUsingTls";
 
         static void Main(string[] args)
         {
-            // bypasses that certificate is not really trusted
+            // bypasses certificate validation
             ServicePointManager.ServerCertificateValidationCallback = ValidateServerCertificate;
 
-            var binding = new WS2007FederationHttpBinding(WSFederationHttpSecurityMode.TransportWithMessageCredential);
-            binding.Security.Message.IssuedKeyType = SecurityKeyType.BearerKey;
-            binding.Security.Message.EstablishSecurityContext = false;
-            var endpointAddress = new EndpointAddress(serviceAddress);
-            SetMaxTimeout(binding);
+            // federation binding
+            var authorityBinding = new WS2007HttpBinding(SecurityMode.Transport);
+            var serviceBinding = new WS2007FederationHttpBinding(WSFederationHttpSecurityMode.TransportWithMessageCredential);
+            serviceBinding.Security.Message.IssuedTokenType = _saml20;
+            serviceBinding.Security.Message.IssuerAddress = new EndpointAddress(_authority);
+            serviceBinding.Security.Message.IssuerBinding = authorityBinding;
+            serviceBinding.Security.Message.IssuedKeyType = SecurityKeyType.BearerKey;
+            serviceBinding.Security.Message.EstablishSecurityContext = false;
+            SetMaxTimeout(serviceBinding);
 
-            var cert = CertificateUtilities.GetCertificate(StoreName.My, StoreLocation.LocalMachine, X509FindType.FindByThumbprint, "fefced16e5ee7ad09e2938e82263c7ae6498ce82");
-
-            // Service
-            var serviceHost = new ServiceHost(typeof(RequestReply), new Uri(serviceAddress));
-            serviceHost.AddServiceEndpoint(typeof(IRequestReply), binding, serviceAddress);
+            // service host
+            var cert = CertificateUtilities.GetCertificate(StoreName.My, StoreLocation.LocalMachine, X509FindType.FindBySubjectName, "SelfHostSts");
+            var serviceHost = new ServiceHost(typeof(RequestReply), new Uri(_serviceAddress));
+            serviceHost.AddServiceEndpoint(typeof(IRequestReply), serviceBinding, _serviceAddress);
             serviceHost.Credentials.ServiceCertificate.Certificate = cert;
             serviceHost.Credentials.UseIdentityConfiguration = true;
-            serviceHost.Credentials.IdentityConfiguration.AudienceRestriction.AudienceMode = AudienceUriMode.Never;
+            serviceHost.Credentials.IdentityConfiguration.AudienceRestriction.AllowedAudienceUris.Add(new Uri(_serviceAddress));
             serviceHost.Credentials.IdentityConfiguration.CertificateValidationMode = X509CertificateValidationMode.None;
             serviceHost.Credentials.IdentityConfiguration.IssuerNameRegistry = new CustomIssuerNameRegistry(_authority);
             serviceHost.Open();
 
-            // Client
-            var clientChannelFactory = new ChannelFactory<IRequestReply>(binding, endpointAddress);
-            clientChannelFactory.Credentials.UseIdentityConfiguration = true;
-            var client = clientChannelFactory.CreateChannelWithIssuedToken(GetSamlToken(cert, _authority));
+            // client factory
+            var channelFactory = new ChannelFactory<IRequestReply>(serviceBinding, new EndpointAddress(new Uri(_serviceAddress)));
+            channelFactory.Credentials.UseIdentityConfiguration = true;
+            var requestChannel = channelFactory.CreateChannel();
             try
             {
-                Console.WriteLine(string.Format(@"Client received from server: '{0}'", client.SendString("hello from client.")));
+                var outboundMessage = "WS2007FederationHttpBinding - Hello";
+                Console.WriteLine($"Channel sending:'{outboundMessage}'.");
+                Console.WriteLine($"Channel received: '{requestChannel.SendString(outboundMessage)}'.");
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                Console.WriteLine("Caught Exception => '{0}'", e.ToString());
+                Console.WriteLine($"Caught Exception => '{ex}'.");
             }
 
             Console.WriteLine("Press any key to close.");
             Console.ReadKey();
         }
-
-        static SecurityToken GetSamlToken(X509Certificate2 cert, string issuer)
-        {
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                SigningCredentials = CreateSigningCredentials(cert),
-                Subject = new ClaimsIdentity(new List<Claim>
-                {
-                    new Claim(ClaimTypes.NameIdentifier, "Bob"),
-                    new Claim(ClaimTypes.Email, "Bob@contoso.com"),
-                }),
-                TokenIssuerName = issuer
-            };
-
-            return (new SamlSecurityTokenHandler()).CreateToken(tokenDescriptor);
-        }
-
-        static SecurityToken GetSaml2Token(X509Certificate2 cert, string issuer)
-        {
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                SigningCredentials = CreateSigningCredentials(cert),
-                Subject = new ClaimsIdentity(new List<Claim>
-                {
-                    new Claim(ClaimTypes.NameIdentifier, "Bob"),
-                    new Claim(ClaimTypes.Email, "Bob@contoso.com"),
-                }),
-                TokenIssuerName = issuer
-            };
-
-            return (new Saml2SecurityTokenHandler()).CreateToken(tokenDescriptor) as Saml2SecurityToken;
-        }
-
-        static SigningCredentials CreateSigningCredentials(X509Certificate2 cert)
-        {
-            // create a symmetric key
-            var symmetricKey = new InMemorySymmetricSecurityKey(Aes.Create().Key, false);
-            var x509Key = new X509AsymmetricSecurityKey(cert);
-            var encryptedKey = x509Key.EncryptKey(SecurityAlgorithms.RsaV15KeyWrap, symmetricKey.GetSymmetricKey());
-            var encryptedKeyIdentifierClause = new EncryptedKeyIdentifierClause(encryptedKey, SecurityAlgorithms.RsaV15KeyWrap, new SecurityKeyIdentifier(new X509ThumbprintKeyIdentifierClause(cert)));
-            SecurityKeyIdentifier ski = new SecurityKeyIdentifier(new SecurityKeyIdentifierClause[]
-            {
-                    encryptedKeyIdentifierClause,
-                    new X509RawDataKeyIdentifierClause(cert.RawData)
-            });
-
-            // use symmetric key to sign the assertion
-            return new SigningCredentials(symmetricKey, SecurityAlgorithms.HmacSha256Signature, SecurityAlgorithms.Sha256Digest, ski);
-        }
-
-
 
         public static void SetMaxTimeout(Binding binding)
         {
@@ -149,16 +101,12 @@ namespace Saml2IssuedToken
             binding.SendTimeout = TimeSpan.MaxValue;
         }
 
-        static bool ValidateServerCertificate(
-            object sender,
-            X509Certificate certificate,
-            X509Chain chain,
-            SslPolicyErrors sslPolicyErrors)
+        static bool ValidateServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
         {
             if (sslPolicyErrors == SslPolicyErrors.None)
                 return true;
 
-            Console.WriteLine("Certificate error: {0}", sslPolicyErrors);
+            Console.WriteLine($"ValidateServerCertificate.\nsslPolicyErrors:\n'{sslPolicyErrors}'\ncertificate:\n'{certificate}'.");
             return true;
         }
     }
@@ -190,11 +138,9 @@ namespace Saml2IssuedToken
         [OperationBehavior]
         public string SendString(string message)
         {
-            string outbound = string.Format("Service received: {0}", message);
-
-            Console.WriteLine("Service received: '{0}'", message);
-            Console.WriteLine("Service sending: '{0}'", outbound);
-
+            string outbound = string.Format($"Service received: '{message}'.");
+            Console.WriteLine($"Service received: '{message}'.");
+            Console.WriteLine($"Service returning: '{outbound}'.");
             return outbound;
         }
     }

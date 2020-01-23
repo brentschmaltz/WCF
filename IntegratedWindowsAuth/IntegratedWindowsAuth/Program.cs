@@ -16,8 +16,8 @@ namespace IntegratedWindowsAuth
         static void Main(string[] args)
         {
             var baseAddress = "http://127.0.0.1:8080/IntegratedWindowsAuth";
-            var binding = new WSHttpBinding(SecurityMode.Message, false);
-            binding.Security.Message.EstablishSecurityContext = false;
+            var binding = new WSHttpBinding(SecurityMode.Transport, false);
+            binding.Security.Message.EstablishSecurityContext = true;
             var customBinding = new CustomBinding(binding);
             BindingUtilities.SetSecurityHeaderLayout(customBinding, SecurityHeaderLayout.Strict);
             BindingUtilities.SetMessageProtectionOrder(customBinding, MessageProtectionOrder.EncryptBeforeSign);
