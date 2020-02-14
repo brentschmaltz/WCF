@@ -54,6 +54,7 @@ namespace Saml2IssuedToken
             ServicePointManager.ServerCertificateValidationCallback = ValidateServerCertificate;
 
             // federation binding
+            // this got through SecurityHeaderProcessing
             var authorityBinding = new WS2007HttpBinding(SecurityMode.Transport);
             var serviceBinding = new WS2007FederationHttpBinding(WSFederationHttpSecurityMode.TransportWithMessageCredential);
             serviceBinding.Security.Message.IssuedTokenType = _saml20;
@@ -62,6 +63,12 @@ namespace Saml2IssuedToken
             serviceBinding.Security.Message.IssuedKeyType = SecurityKeyType.BearerKey;
             serviceBinding.Security.Message.EstablishSecurityContext = false;
             SetMaxTimeout(serviceBinding);
+
+            // http binding
+            //var serviceBinding = new WSHttpBinding(SecurityMode.TransportWithMessageCredential);
+            //serviceBinding.Security.Message.ClientCredentialType = MessageCredentialType.IssuedToken;
+            //serviceBinding.Security.Message.EstablishSecurityContext = false;
+            //SetMaxTimeout(serviceBinding);
 
             // service host
             var cert = CertificateUtilities.GetCertificate(StoreName.My, StoreLocation.LocalMachine, X509FindType.FindBySubjectName, "SelfHostSts");
@@ -74,22 +81,27 @@ namespace Saml2IssuedToken
             serviceHost.Credentials.IdentityConfiguration.IssuerNameRegistry = new CustomIssuerNameRegistry(_authority);
             serviceHost.Open();
 
+            bool runClient = false;
+
             // client factory
-            var channelFactory = new ChannelFactory<IRequestReply>(serviceBinding, new EndpointAddress(new Uri(_serviceAddress)));
-            channelFactory.Credentials.UseIdentityConfiguration = true;
-            var requestChannel = channelFactory.CreateChannel();
-            try
-            {
-                var outboundMessage = "WS2007FederationHttpBinding - Hello";
-                Console.WriteLine($"Channel sending:'{outboundMessage}'.");
-                Console.WriteLine($"Channel received: '{requestChannel.SendString(outboundMessage)}'.");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Caught Exception => '{ex}'.");
+            if (runClient)
+            { 
+                var channelFactory = new ChannelFactory<IRequestReply>(serviceBinding, new EndpointAddress(new Uri(_serviceAddress)));
+                channelFactory.Credentials.UseIdentityConfiguration = true;
+                var requestChannel = channelFactory.CreateChannel();
+                try
+                {
+                    var outboundMessage = "Hello";
+                    Console.WriteLine($"Channel sending:'{outboundMessage}'.");
+                    Console.WriteLine($"Channel received: '{requestChannel.SendString(outboundMessage)}'.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Caught Exception => '{ex}'.");
+                }
             }
 
-            Console.WriteLine("Press any key to close.");
+            Console.WriteLine("Press any key to close, ServiceHost listening.");
             Console.ReadKey();
         }
 
@@ -128,7 +140,7 @@ namespace Saml2IssuedToken
     [ServiceContract]
     interface IRequestReply
     {
-        [OperationContract()]
+        [OperationContract(Name ="SendString")]
         string SendString(string message);
     }
 

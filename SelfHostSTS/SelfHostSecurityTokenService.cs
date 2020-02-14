@@ -47,9 +47,9 @@ namespace SelfHostSTS
 
             var scope = new Scope(request.AppliesTo.Uri.OriginalString, SecurityTokenServiceConfiguration.SigningCredentials)
             {
-                TokenEncryptionRequired = true,
-                EncryptingCredentials = new X509EncryptingCredentials(SecurityTokenServiceConfiguration.ServiceCertificate),
-                SymmetricKeyEncryptionRequired = true
+                TokenEncryptionRequired = false
+                //EncryptingCredentials = new X509EncryptingCredentials(SecurityTokenServiceConfiguration.ServiceCertificate),
+                //SymmetricKeyEncryptionRequired = true
             };
 
             if (string.IsNullOrEmpty(request.ReplyTo))
