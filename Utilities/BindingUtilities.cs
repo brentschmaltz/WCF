@@ -579,6 +579,27 @@ namespace WcfUtilities
             }
         }
 
+        public static void SetSignatureConfirmation(CustomBinding customBinding, bool signatureConfirmation, bool requireDerivedKeys)
+        {
+            var securityBindingElement = GetSecurityBindingElement(customBinding.Elements);
+            if (securityBindingElement == null)
+                throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture, "Unable to find '{0}' in customBinding", typeof(SecurityBindingElement)));
+
+            if (securityBindingElement is AsymmetricSecurityBindingElement asymmetricBindingElement)
+            {
+                asymmetricBindingElement.RequireSignatureConfirmation = signatureConfirmation;
+                asymmetricBindingElement.SetKeyDerivation(requireDerivedKeys);
+                asymmetricBindingElement.InitiatorTokenParameters.RequireDerivedKeys = requireDerivedKeys;
+                asymmetricBindingElement.RecipientTokenParameters.RequireDerivedKeys = requireDerivedKeys;
+            }
+            else if (securityBindingElement is SymmetricSecurityBindingElement symmetricBindingElement)
+            {
+                symmetricBindingElement.RequireSignatureConfirmation = signatureConfirmation;
+                symmetricBindingElement.SetKeyDerivation(requireDerivedKeys);
+                symmetricBindingElement.ProtectionTokenParameters.RequireDerivedKeys = requireDerivedKeys;
+            }
+        }
+
         public static bool TryGetSecurityBindingElement(CustomBinding customBinding, out SecurityBindingElement sbe)
         {
             sbe = null;

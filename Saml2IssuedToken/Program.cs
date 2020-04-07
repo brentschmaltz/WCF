@@ -26,6 +26,9 @@
 //------------------------------------------------------------------------------
 
 using System;
+using System.IdentityModel.Claims;
+using System.IdentityModel.Policy;
+using System.IdentityModel.Protocols.WSTrust;
 using System.IdentityModel.Tokens;
 using System.Net;
 using System.Net.Security;
@@ -43,10 +46,18 @@ namespace Saml2IssuedToken
 {
     class Program
     {
-        static string _authority = "https://127.0.0.1:5443/WsTrust13/transportIWA";
+        //static string _authority = "http://127.0.0.1:8080/WsTrust13/messageUserName";
+        static string _authority = "https://fs.msidlab8.com/adfs/services/trust/13/usernamemixed";
+        //static string _authority = "https://fs.msidlab8.com/adfs/services/trust/13/windowstransport";
+        //static string _authority = "http://fs.msidlab4.com/adfs/services/trust/13/windows";
         static string _saml11 = "http://docs.oasis-open.org/wss/oasis-wss-saml-token-profile-1.1#SAMLV1.1";
         static string _saml20 = "http://docs.oasis-open.org/wss/oasis-wss-saml-token-profile-1.1#SAMLV2.0";
         static string _serviceAddress = "https://127.0.0.1:443/IssuedTokenUsingTls";
+
+        //static string _authority = "https://msft.sts.microsoft.com/adfs/services/trust/2005/windowstransport";
+        //static string _authority = "https://msft.sts.microsoft.com/adfs/services/trust/13/windowstransport";
+        //metadata https://fs.msidlab8.com/federationmetadata/2007-06/federationmetadata.xml 
+
 
         static void Main(string[] args)
         {
@@ -55,20 +66,8 @@ namespace Saml2IssuedToken
 
             // federation binding
             // this got through SecurityHeaderProcessing
-            var authorityBinding = new WS2007HttpBinding(SecurityMode.Transport);
-            var serviceBinding = new WS2007FederationHttpBinding(WSFederationHttpSecurityMode.TransportWithMessageCredential);
-            serviceBinding.Security.Message.IssuedTokenType = _saml20;
-            serviceBinding.Security.Message.IssuerAddress = new EndpointAddress(_authority);
-            serviceBinding.Security.Message.IssuerBinding = authorityBinding;
-            serviceBinding.Security.Message.IssuedKeyType = SecurityKeyType.BearerKey;
-            serviceBinding.Security.Message.EstablishSecurityContext = false;
-            SetMaxTimeout(serviceBinding);
-
-            // http binding
-            //var serviceBinding = new WSHttpBinding(SecurityMode.TransportWithMessageCredential);
-            //serviceBinding.Security.Message.ClientCredentialType = MessageCredentialType.IssuedToken;
-            //serviceBinding.Security.Message.EstablishSecurityContext = false;
-            //SetMaxTimeout(serviceBinding);
+            var authorityBinding = AuthorityBinding();
+            var serviceBinding = ServiceBinding(authorityBinding);
 
             // service host
             var cert = CertificateUtilities.GetCertificate(StoreName.My, StoreLocation.LocalMachine, X509FindType.FindBySubjectName, "SelfHostSts");
@@ -81,13 +80,16 @@ namespace Saml2IssuedToken
             serviceHost.Credentials.IdentityConfiguration.IssuerNameRegistry = new CustomIssuerNameRegistry(_authority);
             serviceHost.Open();
 
-            bool runClient = false;
+            bool runClient = true;
 
             // client factory
             if (runClient)
-            { 
-                var channelFactory = new ChannelFactory<IRequestReply>(serviceBinding, new EndpointAddress(new Uri(_serviceAddress)));
+            {
+                var channelFactory = new ChannelFactory<IRequestReply>(serviceBinding, new EndpointAddress(new Uri(_serviceAddress), EndpointIdentity.CreateX509CertificateIdentity(cert), new AddressHeaderCollection()));
                 channelFactory.Credentials.UseIdentityConfiguration = true;
+                channelFactory.Credentials.ServiceCertificate.Authentication.CertificateValidationMode = X509CertificateValidationMode.None;
+                channelFactory.Credentials.UserName.UserName = "msidlab8";
+                channelFactory.Credentials.UserName.Password = "Baii#251";
                 var requestChannel = channelFactory.CreateChannel();
                 try
                 {
@@ -103,6 +105,29 @@ namespace Saml2IssuedToken
 
             Console.WriteLine("Press any key to close, ServiceHost listening.");
             Console.ReadKey();
+        }
+
+        public static Binding AuthorityBinding()
+        {
+            var authorityBinding = new WS2007HttpBinding(SecurityMode.TransportWithMessageCredential);
+            authorityBinding.Security.Message.ClientCredentialType = MessageCredentialType.UserName;
+            authorityBinding.Security.Message.EstablishSecurityContext = false;
+            SetMaxTimeout(authorityBinding);
+
+            return authorityBinding;
+        }
+
+        public static Binding ServiceBinding(Binding authorityBinding)
+        {
+            var serviceBinding = new WS2007FederationHttpBinding(WSFederationHttpSecurityMode.TransportWithMessageCredential);
+            serviceBinding.Security.Message.IssuedTokenType = _saml20;
+            serviceBinding.Security.Message.IssuerAddress = new EndpointAddress(_authority);
+            serviceBinding.Security.Message.IssuerBinding = authorityBinding;
+            serviceBinding.Security.Message.IssuedKeyType = SecurityKeyType.SymmetricKey;
+            serviceBinding.Security.Message.EstablishSecurityContext = false;
+            SetMaxTimeout(serviceBinding);
+
+            return serviceBinding;
         }
 
         public static void SetMaxTimeout(Binding binding)
@@ -134,6 +159,19 @@ namespace Saml2IssuedToken
         public override string GetIssuerName(SecurityToken securityToken)
         {
             return _issuer;
+        }
+    }
+
+    class CustomIdentityVerifier : IdentityVerifier
+    {
+        public override bool CheckAccess(EndpointIdentity identity, AuthorizationContext authContext)
+        {
+            return true;
+        }
+
+        public override bool TryGetIdentity(EndpointAddress reference, out EndpointIdentity identity)
+        {
+            return IdentityVerifier.CreateDefault().TryGetIdentity(reference, out identity);
         }
     }
 

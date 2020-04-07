@@ -3,6 +3,7 @@
 // ----------------------------------------------------------------------------
 
 using System;
+using System.IdentityModel.Tokens;
 using System.Security.Cryptography.X509Certificates;
 using System.ServiceModel;
 using System.ServiceModel.Channels;
@@ -15,6 +16,9 @@ namespace MutualCert
 {
     class Program
     {
+        static string _authority = "CN=SelfSignedClient";
+        static bool _useIdentityModel = true;
+
         static void Main(string[] args)
         {
             // using self signed certs, we need to set the outbound identity or WCF will fault.
@@ -30,14 +34,24 @@ namespace MutualCert
             binding.Security.Message.NegotiateServiceCredential = false;
 
             var customBinding = new CustomBinding(binding);
+            BindingUtilities.SetSignatureConfirmation(customBinding, false, false);
             BindingUtilities.SetSecurityHeaderLayout(customBinding, SecurityHeaderLayout.Strict);
-            BindingUtilities.SetMessageProtectionOrder(customBinding, MessageProtectionOrder.EncryptBeforeSign);
+            //BindingUtilities.SetMessageProtectionOrder(customBinding, MessageProtectionOrder.EncryptBeforeSign);
             BindingUtilities.SetMaxTimeout(customBinding);
             BindingUtilities.SetReplayDetection(customBinding, false);
 
             var serviceHost = new ServiceHost(typeof(RequestReplyEncryptAndSign), new Uri(baseAddress));
             serviceHost.AddServiceEndpoint(typeof(IRequestReplyEncryptAndSign), customBinding, baseAddress);
-            serviceHost.Credentials.ClientCertificate.Authentication.CertificateValidationMode = X509CertificateValidationMode.ChainTrust;
+            if (_useIdentityModel)
+            {
+                serviceHost.Credentials.UseIdentityConfiguration = true;
+                serviceHost.Credentials.IdentityConfiguration.CertificateValidationMode = X509CertificateValidationMode.None;
+                serviceHost.Credentials.IdentityConfiguration.IssuerNameRegistry = new CustomIssuerNameRegistry(_authority);
+            }
+            else
+            {
+                serviceHost.Credentials.ClientCertificate.Authentication.CertificateValidationMode = X509CertificateValidationMode.None;
+            }
             serviceHost.Credentials.ServiceCertificate.SetCertificate("CN=SelfSignedHost", StoreLocation.LocalMachine, StoreName.My);
 
             if (serviceHost.Description.Behaviors.Find<ServiceMetadataBehavior>() == null)
@@ -63,6 +77,20 @@ namespace MutualCert
 
             Console.WriteLine("Press a key");
             Console.ReadKey();
+        }
+
+        class CustomIssuerNameRegistry : IssuerNameRegistry
+        {
+            string _issuer;
+            public CustomIssuerNameRegistry(string issuer)
+            {
+                _issuer = issuer;
+            }
+
+            public override string GetIssuerName(SecurityToken securityToken)
+            {
+                return _issuer;
+            }
         }
     }
 }
