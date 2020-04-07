@@ -2,13 +2,16 @@
 // Mutual Cert Binding Example
 // ----------------------------------------------------------------------------
 
+using CertUtils;
 using System;
+using System.IdentityModel.Selectors;
 using System.IdentityModel.Tokens;
 using System.Security.Cryptography.X509Certificates;
 using System.ServiceModel;
 using System.ServiceModel.Channels;
 using System.ServiceModel.Description;
 using System.ServiceModel.Security;
+using System.ServiceModel.Security.Tokens;
 using WcfContracts;
 using WcfUtilities;
 
@@ -52,6 +55,7 @@ namespace MutualCert
             {
                 serviceHost.Credentials.ClientCertificate.Authentication.CertificateValidationMode = X509CertificateValidationMode.None;
             }
+
             serviceHost.Credentials.ServiceCertificate.SetCertificate("CN=SelfSignedHost", StoreLocation.LocalMachine, StoreName.My);
 
             if (serviceHost.Description.Behaviors.Find<ServiceMetadataBehavior>() == null)
@@ -60,7 +64,11 @@ namespace MutualCert
             serviceHost.Open();
             BindingUtilities.DisplayBindingInfoToConsole(serviceHost);
 
+            var cert = CertificateUtilities.GetCertificate(StoreName.My, StoreLocation.LocalMachine, X509FindType.FindBySubjectName, "SelfSignedClient");
             var channelFactory = new ChannelFactory<IRequestReplyEncryptAndSign>(customBinding, epa);
+            channelFactory.Endpoint.EndpointBehaviors.Remove(typeof(ClientCredentials));
+            channelFactory.Endpoint.EndpointBehaviors.Add(new CustomClientCredentials(cert, cert));
+
             channelFactory.Credentials.ServiceCertificate.SetDefaultCertificate("CN=SelfSignedHost", StoreLocation.LocalMachine, StoreName.My);
             channelFactory.Credentials.ClientCertificate.SetCertificate("CN=SelfSignedClient", StoreLocation.LocalMachine, StoreName.My);
             var srr = channelFactory.CreateChannel();
@@ -90,6 +98,96 @@ namespace MutualCert
             public override string GetIssuerName(SecurityToken securityToken)
             {
                 return _issuer;
+            }
+        }
+
+        class CustomClientCredentials : ClientCredentials
+        {
+            public CustomClientCredentials(CustomClientCredentials other)
+                : base(other)
+            {
+                SigningCertificate = other.SigningCertificate;
+            }
+
+            public CustomClientCredentials(X509Certificate2 signingCert, X509Certificate2 encryptingCert)
+                : base()
+            {
+                SigningCertificate = signingCert;
+            }
+
+            public override SecurityTokenManager CreateSecurityTokenManager()
+            {
+                return new CustomClientCredentialsSecurityTokenManager(this);
+            }
+
+            protected override ClientCredentials CloneCore()
+            {
+                return new CustomClientCredentials(this);
+            }
+
+            public X509Certificate2 SigningCertificate
+            {
+                get; set;
+            }
+
+            public X509Certificate2 EncryptionCertificate
+            {
+                get; set;
+            }
+        }
+
+        class CustomClientCredentialsSecurityTokenManager : ClientCredentialsSecurityTokenManager
+        {
+            CustomClientCredentials _customClientCredentials;
+
+            public CustomClientCredentialsSecurityTokenManager(CustomClientCredentials customClientCredentials)
+                : base(customClientCredentials)
+            {
+                _customClientCredentials = customClientCredentials;
+            }
+
+            public override SecurityTokenProvider CreateSecurityTokenProvider(SecurityTokenRequirement requirement)
+            {
+                return base.CreateSecurityTokenProvider(requirement);
+                /*
+                SecurityTokenProvider result = null;
+                if (requirement.TokenType == SecurityTokenTypes.X509Certificate)
+                {
+                    MessageDirection direction = requirement.GetProperty<MessageDirection>(ServiceModelSecurityTokenRequirement.MessageDirectionProperty);
+
+                    if (direction == MessageDirection.Output)
+                    {
+                        if (requirement.KeyUsage == SecurityKeyUsage.Signature)
+                            result = new X509SecurityTokenProvider(_customClientCredentials.SigningCertificate);
+                        else
+                            result = new X509SecurityTokenProvider(_customClientCredentials.EncryptionCertificate);
+                    }
+                    else
+                    {
+                        if (requirement.KeyUsage == SecurityKeyUsage.Signature)
+                            result = new X509SecurityTokenProvider(_customClientCredentials.SigningCertificate);
+                        else
+                            result = new X509SecurityTokenProvider(_customClientCredentials.EncryptionCertificate);
+                    }
+                }
+                else
+                {
+                    result = base.CreateSecurityTokenProvider(requirement);
+                }
+
+                return result;
+                */
+            }
+
+            public override SecurityTokenSerializer CreateSecurityTokenSerializer(SecurityTokenVersion version)
+            {
+                return base.CreateSecurityTokenSerializer(version);
+            }
+
+            public override SecurityTokenAuthenticator  CreateSecurityTokenAuthenticator(SecurityTokenRequirement tokenRequirement, out SecurityTokenResolver outOfBandTokenResolver)
+            {
+                var sta = base.CreateSecurityTokenAuthenticator(tokenRequirement,  out outOfBandTokenResolver);
+                return sta;
             }
         }
     }
