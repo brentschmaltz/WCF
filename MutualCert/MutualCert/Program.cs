@@ -4,6 +4,7 @@
 
 using CertUtils;
 using System;
+using System.Collections.Generic;
 using System.IdentityModel.Selectors;
 using System.IdentityModel.Tokens;
 using System.Security.Cryptography.X509Certificates;
@@ -12,6 +13,7 @@ using System.ServiceModel.Channels;
 using System.ServiceModel.Description;
 using System.ServiceModel.Security;
 using System.ServiceModel.Security.Tokens;
+using System.Xml;
 using WcfContracts;
 using WcfUtilities;
 
@@ -66,8 +68,10 @@ namespace MutualCert
 
             var cert = CertificateUtilities.GetCertificate(StoreName.My, StoreLocation.LocalMachine, X509FindType.FindBySubjectName, "SelfSignedClient");
             var channelFactory = new ChannelFactory<IRequestReplyEncryptAndSign>(customBinding, epa);
+            var customClientCredentials = channelFactory.Credentials;
+            customClientCredentials.SupportInteractive = false;
             channelFactory.Endpoint.EndpointBehaviors.Remove(typeof(ClientCredentials));
-            channelFactory.Endpoint.EndpointBehaviors.Add(new CustomClientCredentials(cert, cert));
+            channelFactory.Endpoint.EndpointBehaviors.Add(new CustomClientCredentials(customClientCredentials, cert, cert));
 
             channelFactory.Credentials.ServiceCertificate.SetDefaultCertificate("CN=SelfSignedHost", StoreLocation.LocalMachine, StoreName.My);
             channelFactory.Credentials.ClientCertificate.SetCertificate("CN=SelfSignedClient", StoreLocation.LocalMachine, StoreName.My);
@@ -109,8 +113,8 @@ namespace MutualCert
                 SigningCertificate = other.SigningCertificate;
             }
 
-            public CustomClientCredentials(X509Certificate2 signingCert, X509Certificate2 encryptingCert)
-                : base()
+            public CustomClientCredentials(ClientCredentials clientCredentials, X509Certificate2 signingCert, X509Certificate2 encryptingCert)
+                : base(clientCredentials)
             {
                 SigningCertificate = signingCert;
             }
@@ -181,13 +185,89 @@ namespace MutualCert
 
             public override SecurityTokenSerializer CreateSecurityTokenSerializer(SecurityTokenVersion version)
             {
-                return base.CreateSecurityTokenSerializer(version);
+                var serializer = base.CreateSecurityTokenSerializer(version);
+
+                return new CustomSecurityTokenSerializer(serializer);
             }
 
             public override SecurityTokenAuthenticator  CreateSecurityTokenAuthenticator(SecurityTokenRequirement tokenRequirement, out SecurityTokenResolver outOfBandTokenResolver)
             {
                 var sta = base.CreateSecurityTokenAuthenticator(tokenRequirement,  out outOfBandTokenResolver);
+
+                outOfBandTokenResolver = SecurityTokenResolver.CreateDefaultSecurityTokenResolver((new List<SecurityToken>{ new X509SecurityToken(_customClientCredentials.ServiceCertificate.DefaultCertificate)}).AsReadOnly(), true);
+
                 return sta;
+            }
+        }
+
+        class CustomSecurityTokenSerializer : SecurityTokenSerializer
+        {
+            private SecurityTokenSerializer _securityTokenSerializer;
+
+            public CustomSecurityTokenSerializer(SecurityTokenSerializer securityTokenSerializer)
+            {
+                _securityTokenSerializer = securityTokenSerializer;
+            }
+
+            protected override bool CanReadKeyIdentifierClauseCore(XmlReader reader)
+            {
+                throw new NotImplementedException();
+            }
+
+            protected override bool CanReadKeyIdentifierCore(XmlReader reader)
+            {
+                return _securityTokenSerializer.CanReadKeyIdentifier(reader);
+            }
+
+            protected override bool CanReadTokenCore(XmlReader reader)
+            {
+                throw new NotImplementedException();
+            }
+
+            protected override bool CanWriteKeyIdentifierClauseCore(SecurityKeyIdentifierClause keyIdentifierClause)
+            {
+                throw new NotImplementedException();
+            }
+
+            protected override bool CanWriteKeyIdentifierCore(SecurityKeyIdentifier keyIdentifier)
+            {
+                throw new NotImplementedException();
+            }
+
+            protected override bool CanWriteTokenCore(SecurityToken token)
+            {
+                throw new NotImplementedException();
+            }
+
+            protected override SecurityKeyIdentifierClause ReadKeyIdentifierClauseCore(XmlReader reader)
+            {
+                throw new NotImplementedException();
+            }
+
+            protected override SecurityKeyIdentifier ReadKeyIdentifierCore(XmlReader reader)
+            {
+                var ski = _securityTokenSerializer.ReadKeyIdentifier(reader);
+                return ski;
+            }
+
+            protected override SecurityToken ReadTokenCore(XmlReader reader, SecurityTokenResolver tokenResolver)
+            {
+                throw new NotImplementedException();
+            }
+
+            protected override void WriteKeyIdentifierClauseCore(XmlWriter writer, SecurityKeyIdentifierClause keyIdentifierClause)
+            {
+                throw new NotImplementedException();
+            }
+
+            protected override void WriteKeyIdentifierCore(XmlWriter writer, SecurityKeyIdentifier keyIdentifier)
+            {
+                _securityTokenSerializer.WriteKeyIdentifier(writer, keyIdentifier);
+            }
+
+            protected override void WriteTokenCore(XmlWriter writer, SecurityToken token)
+            {
+                _securityTokenSerializer.WriteToken(writer, token);
             }
         }
     }
