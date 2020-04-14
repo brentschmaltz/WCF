@@ -1,120 +1,143 @@
-﻿using System;
-using System.Collections.Generic;
+﻿//------------------------------------------------------------------------------
+//
+// Copyright (c) Brent Schmaltz.
+// All rights reserved.
+//
+// This code is licensed under the MIT License.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files(the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and / or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions :
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+//------------------------------------------------------------------------------
+
+using System;
 using System.IdentityModel.Protocols.WSTrust;
-using System.IdentityModel.Selectors;
 using System.IdentityModel.Tokens;
 using System.Net;
-using System.Security.Cryptography;
+using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
-using System.Security.Cryptography.Xml;
 using System.ServiceModel;
+using System.ServiceModel.Channels;
 using System.ServiceModel.Security;
-using System.ServiceModel.Security.Tokens;
-using System.Text;
-using System.Xml;
-using WCFSecurityUtilities;
 
 namespace WsTrustClient
 {
     class Program
     {
-        static string _stsAddress = "https://127.0.0.1:5443/wsTrust13/transportIssueSaml";
-        static string _stsAddressUserName = "https://127.0.0.1:5443/wsTrust13/transportUserName";
-        static string _serviceAddress = "https://127.0.0.1:8080/service";
-        static string SelfSignedX509Data = @"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";
-        static string SelfSignedX509Data_Public = @"MIIDXjCCAkagAwIBAgIQY9+BvEWchJpAX/tDKzHwFDANBgkqhkiG9w0BAQsFADA1MTMwMQYDVQQDHioAUwBlAGwAZgBTAGkAZwBuAGUAZAAyADAANAA4AF8AUwBIAEEAMgA1ADYwHhcNMTQxMjI2MTUyNzM2WhcNMzkxMjMxMjM1OTU5WjA1MTMwMQYDVQQDHioAUwBlAGwAZgBTAGkAZwBuAGUAZAAyADAANAA4AF8AUwBIAEEAMgA1ADYwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDWE7VB3zRniE3CsYLy9sCLAdFB7AsGKMkZsJxiwKD1uv+OKshPN9Epm7ZJQWjm6YGeQYKGQUaNs5Z1NaapKLaT52jqcTLRbOC5g331GkXTPICkjDHsR+NPyd7J4O4Hl2ls8q1+mcYhHSJOoamWOGZqtpCfpqqOhHhG75Rn282kA90Ybc6xY+rTgBIYgSt+/l3/muI3XTU6wghifYwZfID1IngBEb+MD346QgpiJcWObL+WIXPGpLNmDjwJZ8IlXvgO5JPSz1wxCyb8EJHUp4hQUc778RtKB82UXbckhL3eW49v1jpuJoqeNm924vlMX3IYAwYDBF93K6F8yu2otpwvAgMBAAGjajBoMGYGA1UdAQRfMF2AEM2V/dQqCNOhP9VPwFcAubuhNzA1MTMwMQYDVQQDHioAUwBlAGwAZgBTAGkAZwBuAGUAZAAyADAANAA4AF8AUwBIAEEAMgA1ADaCEGPfgbxFnISaQF/7Qysx8BQwDQYJKoZIhvcNAQELBQADggEBAKSksE7/5TOc5ngnD54poNnaPWrw4kolFzqYdw1/s/evScT4tgFYR1FrmPB50KYoZ0c8FzDY7PK4SkB7x7xFbjPYZwcEzeHqZ+WsHO3UxI2nU94CUsBmNR09CMMIwt/1A1yfzSNTJE452YtycdLVJUC6NBR30Di5YOFWPwIEO5XE0J7Os1xuhZc6AEKy2STp0I3FL27gHu3R+3Xhqru6fQIOw52Pcp1axXsuE9cQ/HKyeNTvM02FZmjlx/Vy3lC5I/2xiUJrhqzczOMRRB8clpsAp2uNWfrzJ0aLCprQO62pN9L/51PWbSMsNfnfuUo4eZHv2noQ3mGzJPXyK43Omn0=";
-        static X509Certificate2 SelfSignedCert = new X509Certificate2(Convert.FromBase64String(SelfSignedX509Data), "SelfSigned2048_SHA256", X509KeyStorageFlags.DefaultKeySet);
+        static string _saml11 = "http://docs.oasis-open.org/wss/oasis-wss-saml-token-profile-1.1#SAMLV1.1";
+        static string _saml20 = "http://docs.oasis-open.org/wss/oasis-wss-saml-token-profile-1.1#SAMLV2.0";
+        static string _serviceAddress = "https://127.0.0.1:443/IssuedTokenUsingTls";
 
         static void Main(string[] args)
         {
+            // bypasses certificate validation
+            ServicePointManager.ServerCertificateValidationCallback = ValidateServerCertificate;
 
-            ServicePointManager.ServerCertificateValidationCallback = ServicePointManagerCallbacks.AcceptAllCertificates;
-
-            var stsBindingUserName = new WS2007HttpBinding(SecurityMode.TransportWithMessageCredential);
-            stsBindingUserName.Security.Message.EstablishSecurityContext = false;
-            stsBindingUserName.Security.Message.ClientCredentialType = MessageCredentialType.UserName;
-            BindingUtilities.SetMaxTimeout(stsBindingUserName);
-
-            var trustChannelFactoryUserName = new WSTrustChannelFactory(stsBindingUserName, new EndpointAddress(_stsAddressUserName));
-            trustChannelFactoryUserName.TrustVersion = TrustVersion.WSTrust13;
-            trustChannelFactoryUserName.Credentials.SupportInteractive = false;
-            trustChannelFactoryUserName.Credentials.UserName.UserName = "Bob";
-            trustChannelFactoryUserName.Credentials.UserName.Password = "password";
-
-            var stsBindingIssuedToken = new WS2007HttpBinding(SecurityMode.TransportWithMessageCredential);
-            stsBindingIssuedToken.Security.Message.EstablishSecurityContext = false;
-            stsBindingIssuedToken.Security.Message.ClientCredentialType = MessageCredentialType.IssuedToken;
-            BindingUtilities.SetMaxTimeout(stsBindingIssuedToken);
-
-            var trustChannelFactory = new WSTrustChannelFactory(stsBindingIssuedToken, new EndpointAddress(_stsAddress));
-            trustChannelFactory.TrustVersion = TrustVersion.WSTrust13;
-            trustChannelFactory.Credentials.SupportInteractive = false;
-
-            var encryptingCert = new X509Certificate2("SelfHostSts.pfx", "SelfHostSts");
-            var signingCert = new X509Certificate2("SelfHostSTSMetadata.pfx", "SelfHostSTSMetadata");
-            var symmetricSecurityKey = new InMemorySymmetricSecurityKey(Aes.Create().Key);
-            var saml2SecurityToken = TokenBuilder.BuildSaml2SecurityToken(TokenBuilder.SamlClaimsIdentity, _serviceAddress, SelfSignedCert, encryptingCert, symmetricSecurityKey);
-            var genericXmlToken = TokenBuilder.BuildGenericXmlSecurityTokenUsingEnryptedAssertion(saml2SecurityToken, symmetricSecurityKey);
-
-            while (true)
+            try
             {
-                try
+                string usernameMixed = "trust/13/usernamemixed";
+                string windowsMixed = "trust/13/windowsmixed";
+                string windowsTransport = "trust/13/windowsTransport";
+                string upnIdentity = @"putupnidentityhere";
+                string baseAddress = @"putbaseaddresshere";
+                string username = @"putusernamehere";
+                string password = @"putpasswordhere";
+
+                EndpointReference serviceEndpointReference = new EndpointReference(_serviceAddress);
+                WS2007HttpBinding binding = new WS2007HttpBinding();
+                EndpointAddress endpointAddress;
+                bool usernameCredentials = false;
+                bool mixedMode = false;
+
+                Console.WriteLine($"usernameCredentials: '{usernameCredentials}', mixedMode: '{mixedMode}'.");
+
+                if (usernameCredentials)
                 {
-                    // use username endpoint to get saml token
-                    var rst = new RequestSecurityToken(WSTrust13Constants.RequestTypes.Issue)
-                    {
-                        AppliesTo = new EndpointReference(_stsAddressUserName),
-                        KeyType = WSTrust13Constants.KeyTypes.Symmetric
-                    };
-
-                    var trustChannelUserName = trustChannelFactoryUserName.CreateChannel();
-                    var genericTokenFromUserName = trustChannelUserName.Issue(rst);
-                    var trustChannel = trustChannelFactory.CreateChannelWithIssuedToken(genericTokenFromUserName);
-
-                    rst = new RequestSecurityToken(WSTrust13Constants.RequestTypes.Issue)
-                    {
-                        AppliesTo = new EndpointReference(_stsAddress),
-                        TokenType = TokenTypes.Saml20,
-                        KeyType = WSTrust13Constants.KeyTypes.Symmetric
-                    };
-                    var genericTokenFromRstr = trustChannel.Issue(rst, out RequestSecurityTokenResponse response) as GenericXmlSecurityToken;
-
-                    // Check key on RSTR == GenericXmlToken proof key
-                    var symmetricKey = genericTokenFromRstr.SecurityKeys[0] as InMemorySymmetricSecurityKey;
-                    var isProtectedKeySameAsSymmetricKey = Utilities.AreEqual(response.RequestedProofToken.ProtectedKey.GetKeyBytes(), symmetricKey.GetSymmetricKey());
-                    Console.WriteLine($"isProtectedKeySameAsSymmetricKey: '{isProtectedKeySameAsSymmetricKey}'.");
-
-                    // Check key on RSTR == Saml2 subjectConfirmationKey
-                    var xmlReader = XmlDictionaryReader.CreateTextReader(Encoding.UTF8.GetBytes(genericTokenFromRstr.TokenXml.OuterXml), XmlDictionaryReaderQuotas.Max);
-                    var saml = genericTokenFromRstr.TokenXml.OuterXml;
-
-                    // configuration needs signing and encryption keys to read token
-                    var issuerTokenResolver = SecurityTokenResolver.CreateDefaultSecurityTokenResolver((new List<SecurityToken> { new X509SecurityToken(signingCert) }).AsReadOnly(), true);
-                    var serviceTokenResolver = SecurityTokenResolver.CreateDefaultSecurityTokenResolver((new List<SecurityToken> { new X509SecurityToken(encryptingCert) }).AsReadOnly(), true);
-                    var configuration = new SecurityTokenHandlerConfiguration
-                    {
-                        IssuerTokenResolver = issuerTokenResolver,
-                        ServiceTokenResolver = serviceTokenResolver
-                    };
-
-                    var saml2TokenHandler = new Saml2SecurityTokenHandler();
-                    saml2TokenHandler.Configuration = configuration;
-                    var saml2Token = saml2TokenHandler.ReadToken(xmlReader) as Saml2SecurityToken;
-
-                    // get key from subject confirmation and validate
-                    var subjectConfirmation = saml2Token.Assertion.Subject.SubjectConfirmations[0];
-                    var encryptedKeyClause = (subjectConfirmation.SubjectConfirmationData.KeyIdentifiers[0])[0] as EncryptedKeyIdentifierClause;
-                    var key = new X509AsymmetricSecurityKey(encryptingCert);
-                    var clearKey = key.DecryptKey(SecurityAlgorithms.RsaOaepKeyWrap, encryptedKeyClause.GetEncryptedKey());
-                    var isProtectedKeySameAsSaml2SymmetricKey = Utilities.AreEqual(response.RequestedProofToken.ProtectedKey.GetKeyBytes(), clearKey);
-
-                    Console.WriteLine($"isProtectedKeySameAsSaml2SymmetricKey: '{isProtectedKeySameAsSaml2SymmetricKey}'.");
+                    binding.Security.Message.EstablishSecurityContext = false;
+                    binding.Security.Transport.ClientCredentialType = HttpClientCredentialType.None;
+                    binding.Security.Message.ClientCredentialType = MessageCredentialType.UserName;
+                    binding.Security.Mode = SecurityMode.TransportWithMessageCredential;
+                    endpointAddress = new EndpointAddress(baseAddress + usernameMixed);
                 }
-                catch (Exception e)
+                else
                 {
-                    Console.WriteLine("Caught Exception => '{0}'", e.ToString());
+                    binding.Security.Message.EstablishSecurityContext = false;
+                    if (mixedMode)
+                    {
+                        binding.Security.Transport.ClientCredentialType = HttpClientCredentialType.None;
+                        binding.Security.Message.ClientCredentialType = MessageCredentialType.Windows;
+                        binding.Security.Mode = SecurityMode.TransportWithMessageCredential;
+                        binding.Security.Message.NegotiateServiceCredential = false;
+                        endpointAddress = new EndpointAddress(new Uri(baseAddress + windowsMixed), EndpointIdentity.CreateUpnIdentity(upnIdentity), new AddressHeaderCollection());
+                    }
+                    else
+                    {
+                        binding.Security.Transport.ClientCredentialType = HttpClientCredentialType.Windows;
+                        binding.Security.Message.ClientCredentialType = MessageCredentialType.Windows;
+                        binding.Security.Mode = SecurityMode.Transport;
+                        endpointAddress = new EndpointAddress(new Uri(baseAddress + windowsTransport), EndpointIdentity.CreateUpnIdentity(upnIdentity), new AddressHeaderCollection());
+                    }
                 }
+
+                WSTrustChannelFactory trustChannelFactory = new WSTrustChannelFactory(binding, endpointAddress)
+                {
+                    TrustVersion = TrustVersion.WSTrust13
+                };
+
+                SecurityToken token = null;
+                if (usernameCredentials)
+                {
+                    trustChannelFactory.Credentials.UserName.UserName = username;
+                    trustChannelFactory.Credentials.UserName.Password = password;
+                }
+                else
+                {
+                    trustChannelFactory.Credentials.Windows.ClientCredential = new NetworkCredential();
+                }
+
+                WSTrustChannel tokenClient = (WSTrustChannel)trustChannelFactory.CreateChannel();
+                RequestSecurityToken rst = new RequestSecurityToken(RequestTypes.Issue)
+                {
+                    KeyType = KeyTypes.Symmetric,
+                    AppliesTo = serviceEndpointReference,
+                    TokenType = _saml11
+                };
+
+                token = tokenClient.Issue(rst);
+                Console.WriteLine($"SecurityToken: '{token}'.");
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Exception from TrustChannel: '{ex}'.");
+            }
+
+            Console.WriteLine($"Press a key to close.");
+            Console.ReadKey();
+        }
+
+        static bool ValidateServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+        {
+            Console.WriteLine($"ValidateServerCertificate.\nsslPolicyErrors:'{sslPolicyErrors}'\ncertificate:'{certificate}'.");
+
+            if (sslPolicyErrors == SslPolicyErrors.None)
+                return true;
+
+            return true;
         }
     }
 }
