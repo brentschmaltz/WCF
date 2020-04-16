@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Configuration;
 using System.Globalization;
 using System.ServiceModel;
 using System.ServiceModel.Channels;
@@ -8,16 +7,19 @@ using System.ServiceModel.Security.Tokens;
 using System.ServiceModel.Web;
 using WCFSecurityUtilities;
 
+// netsh http add sslcert ipport=127.0.0.1:443 certhash=5008e9b6f4995c472a67c16cc18dad36acf4be38 appid={00112233-4455-6677-8899-AABBCCDDEEFF}
+// netsh http add sslcert ipport=127.0.0.1:5443 certhash=cfb894905fb847d8da1d3df6886ebe22b3b533d8 appid={00112233-4455-6677-8899-AABBCCDDEEFF}
+
 namespace SelfHostSTS
 {
     class Program
     {
-        private static string _endpointNameMessageIWA = "messageIWA";
-        private static string _endpointTransportIWA = "transportIWA";
-        private static string _endpointNameMessageUserName = "messageUserName";
-        private static string _endpointNameTransportIssuerSaml20 = "transportIssueSaml20";
-        private static string _endpointNameTransportIssuerSaml = "transportIssueSaml";
-        private static string _endpointNameTransportUserName = "transportUserName";
+        private static string _endpointNameMessageIWA = "trust/13/messageIWA";
+        private static string WindowsTransport = "trust/13/windowsTransport";
+        private static string WindowsMixed = "trust/13/windowsmixed";
+        private static string _endpointNameTransportIssuerSaml20 = "trust/13/transportIssueSaml20";
+        private static string _endpointNameTransportIssuerSaml = "trust/13/transportIssueSaml";
+        private static string _endpointNameTransportUserName = "trust/13/usernamemixed";
 
         static void Main(string[] args)
         {
@@ -86,24 +88,25 @@ namespace SelfHostSTS
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.TransportWithMessageCredential, false, HttpsWSTrust13Address, _endpointNameTransportIssuerSaml, MessageCredentialType.IssuedToken);
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Message, false, HttpWSTrust13Address, _endpointNameMessageIWA, MessageCredentialType.Windows);
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.TransportWithMessageCredential, false, HttpsWSTrust13Address, _endpointNameTransportUserName, MessageCredentialType.UserName);
-            AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Message, false, HttpWSTrust13Address, _endpointNameMessageUserName, MessageCredentialType.UserName);
-            AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Transport, false, HttpsWSTrust13Address, _endpointTransportIWA, MessageCredentialType.Windows);
+            AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Message, false, HttpWSTrust13Address, WindowsMixed, MessageCredentialType.UserName);
+
+            // Trust 1.3 / transport / windows
+            WS2007HttpBinding binding = new WS2007HttpBinding(SecurityMode.Transport, false);
+            binding.Security.Message.EstablishSecurityContext = false;
+            binding.Security.Transport.ClientCredentialType = HttpClientCredentialType.Windows;
+            BindingUtilities.SetMaxTimeout(binding);
+            WSTrustServiceHost.AddServiceEndpoint(typeof(IWSTrust13SyncContract), binding, HttpsWSTrust13Address + WindowsTransport);
         }
 
         private static SelfHostSecurityTokenServiceConfiguration Configuration { get; set; }
 
         private static void ConfigureSts()
         {
-            // netsh>http add sslcert ipport=127.0.0.1:5443 certhash=9b74cb2f320f7aafc156e1252270b1dc01ef40d0 appid={98C671E2-050A-4D66-97DA-8C7AB80AFAC5}
-            // netsh>http add sslcert ipport=127.0.0.1:5443 certhash=36622f03317f8ccf4ae5aa812255c6dd7cb13eff appid={98C671E2-050A-4D66-97DA-8C7AB80AFAC5}
-            // netsh>http add sslcert ipport=127.0.0.1:5443 certhash=cfb894905fb847d8da1d3df6886ebe22b3b533d8 appid={98C671E2-050A-4D66-97DA-8C7AB80AFAC5}
-            // netsh>http add sslcert ipport=127.0.0.1:5443 certhash=2aa8722c73e8c88409203411b1ac80af8a8deb3a appid={98C671E2-050A-4D66-97DA-8C7AB80AFAC5}
-
             Configuration = new SelfHostSecurityTokenServiceConfiguration();
             Configuration.CertificateValidationMode = X509CertificateValidationMode.None;
             Configuration.IssuerNameRegistry = new ReturnX509SubjectNameOrRSAIssuerNameRegistry();
-            HttpsWSTrust13Address = "https://" + Configuration.BaseAddress + Configuration.HttpsPort + Constants.WSTrust13;
-            HttpWSTrust13Address = "http://" + Configuration.BaseAddress + Configuration.HttpPort + Constants.WSTrust13;
+            HttpsWSTrust13Address = "https://" + Configuration.BaseAddress + Configuration.HttpsPort + "/";
+            HttpWSTrust13Address = "http://" + Configuration.BaseAddress + Configuration.HttpPort + "/";
         }
 
         private static string HttpsWSTrust13Address { get; set; }
