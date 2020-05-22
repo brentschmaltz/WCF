@@ -34,7 +34,8 @@ namespace CodeSnipits
             {
                 AppliesToAddress = "https://local.com",
                 Lifetime = new System.IdentityModel.Protocols.WSTrust.Lifetime(notBefore, expires),
-                EncryptingCredentials = new EncryptedKeyEncryptingCredentials(KeyMaterial.X509Certificate_2048_Public),
+                //EncryptingCredentials = new EncryptedKeyEncryptingCredentials(KeyMaterial.X509Certificate_2048_Public),
+                EncryptingCredentials = new EncryptedKeyEncryptingCredentials(new EncryptingCredentials(new X509AsymmetricSecurityKey(KeyMaterial.X509Certificate_2048_Public), keyIdentifierPublic, SecurityAlgorithms.RsaOaepKeyWrap), 256, SecurityAlgorithms.Aes256Encryption),
                 //Proof = new ProofDescriptor
                 SigningCredentials = new X509SigningCredentials(KeyMaterial.X509Certificate_2048),
                 Subject = new ClaimsIdentity(claims),
