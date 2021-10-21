@@ -9,7 +9,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>SelfHostSTS</RootNamespace>
     <AssemblyName>SelfHostSTS</AssemblyName>
-    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
   </PropertyGroup>
@@ -54,9 +54,6 @@
     <Compile Include="IWSFederationSecurityTokenService.cs" />
     <Compile Include="SelfHostSecurityTokenService.cs" />
     <Compile Include="SelfHostSecurityTokenServiceConfiguration.cs" />
-    <Compile Include="SelfHostSecurityTokenServiceConfigurationSection.cs">
-      <SubType>Code</SubType>
-    </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SelfHostUserNameSecurityTokenHandler.cs" />
@@ -66,10 +63,15 @@
     <None Include="App.config">
       <SubType>Designer</SubType>
     </None>
-    <None Include="LocalSTS.pfx">
+    <None Include="Certs\RelyingParty.cer">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
-    <None Include="packages.config" />
+    <None Include="Certs\SelfHostSts.pfx">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="Certs\SelfHostSTSMetadata.pfx">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\WCFSecurityUtilities\WCFSecurityUtilities.csproj">

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net5.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.ServiceModel.Federation" Version="4.9.0-dev.21520.1" />
+    <PackageReference Include="System.ServiceModel.Security" Version="4.9.0-dev.21520.1" />
+  </ItemGroup>
+
+</Project>

@@ -1,41 +1,15 @@
-﻿//------------------------------------------------------------------------------
-//
-// Copyright (c) Brent Schmaltz.
-// All rights reserved.
-//
-// This code is licensed under the MIT License.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files(the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and / or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions :
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
-//
-//------------------------------------------------------------------------------
-
-using System;
-using System.IdentityModel.Protocols.WSTrust;
+﻿using System;
 using System.IdentityModel.Tokens;
 using System.Net;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.ServiceModel;
-using System.ServiceModel.Channels;
 using System.ServiceModel.Security;
+using Microsoft.IdentityModel.Protocols.WsAddressing;
+using Microsoft.IdentityModel.Protocols.WsPolicy;
+using Microsoft.IdentityModel.Protocols.WsTrust;
 
-namespace WsTrustClient
+namespace WsTrustClientCore
 {
     class Program
     {
@@ -46,7 +20,7 @@ namespace WsTrustClient
         static void Main(string[] args)
         {
             // bypasses certificate validation
-            ServicePointManager.ServerCertificateValidationCallback = ValidateServerCertificate;
+            ServicePointManager.ServerCertificateValidationCallback = new RemoteCertificateValidationCallback(ValidateServerCertificate);
 
             try
             {
@@ -58,7 +32,7 @@ namespace WsTrustClient
                 string username = @"bob";
                 string password = @"password";
 
-                EndpointReference serviceEndpointReference = new EndpointReference(_serviceAddress);
+                AppliesTo appliesTo = new AppliesTo(new EndpointReference(_serviceAddress));
                 WS2007HttpBinding binding = new WS2007HttpBinding();
                 EndpointAddress endpointAddress;
                 bool usernameCredentials = true;
@@ -83,21 +57,24 @@ namespace WsTrustClient
                         binding.Security.Message.ClientCredentialType = MessageCredentialType.Windows;
                         binding.Security.Mode = SecurityMode.TransportWithMessageCredential;
                         binding.Security.Message.NegotiateServiceCredential = false;
-                        endpointAddress = new EndpointAddress(new Uri(baseAddress + windowsMixed), EndpointIdentity.CreateUpnIdentity(upnIdentity), new AddressHeaderCollection());
+                        endpointAddress = new EndpointAddress(new Uri(baseAddress + windowsMixed));
                     }
                     else
                     {
                         binding.Security.Transport.ClientCredentialType = HttpClientCredentialType.Windows;
                         binding.Security.Message.ClientCredentialType = MessageCredentialType.Windows;
                         binding.Security.Mode = SecurityMode.Transport;
-                        endpointAddress = new EndpointAddress(new Uri(baseAddress + windowsTransport), EndpointIdentity.CreateUpnIdentity(upnIdentity), new AddressHeaderCollection());
+                        endpointAddress = new EndpointAddress(new Uri(baseAddress + windowsTransport));
                     }
                 }
 
                 WSTrustChannelFactory trustChannelFactory = new WSTrustChannelFactory(binding, endpointAddress)
                 {
-                    TrustVersion = TrustVersion.WSTrust13
+                    TrustVersion = WsTrustVersion.Trust13,
+                    WsTrustSerializer = new WsTrustSerializer()
                 };
+
+                trustChannelFactory.Credentials.ServiceCertificate.SslCertificateAuthentication = new X509ServiceCertificateAuthentication { CertificateValidationMode = X509CertificateValidationMode.None };
 
                 SecurityToken token = null;
                 if (usernameCredentials)
@@ -110,25 +87,25 @@ namespace WsTrustClient
                     trustChannelFactory.Credentials.Windows.ClientCredential = new NetworkCredential();
                 }
 
-                WSTrustChannel tokenClient = (WSTrustChannel)trustChannelFactory.CreateChannel();
-                RequestSecurityToken rst = new RequestSecurityToken(RequestTypes.Issue)
+                WSTrustChannel tokenClient = (WSTrustChannel)trustChannelFactory.CreateChannel(endpointAddress);
+                WsTrustRequest rst = new WsTrustRequest("Issue")
                 {
-                    KeyType = KeyTypes.Symmetric,
-                    AppliesTo = serviceEndpointReference,
-                    TokenType = _saml11
+                    AppliesTo = appliesTo,
+                    TokenType = _saml11,
+                    WsTrustVersion = WsTrustVersion.Trust13
                 };
 
-                //token = tokenClient.BeginIssue(rst, AsyncCallback, rst);
+                token = tokenClient.Issue(rst);
 
-                var iar = tokenClient.BeginIssue(rst, AsyncCallback, rst);
+//                var iar = tokenClient.BeginIssue(rst, AsyncCallback, rst);
 
-                while (iar.IsCompleted != true)
-                {
-                    UpdateUserInterface();
-                }
+//                while (iar.IsCompleted != true)
+//                {
+//                    UpdateUserInterface();
+//                }
 
-                RequestSecurityTokenResponse requestSecurityTokenResponse = null;
-                token = tokenClient.EndIssue(iar, out requestSecurityTokenResponse);
+//                WsTrustResponse requestSecurityTokenResponse = null;
+//                var message = tokenClient.EndIssue(iar, out requestSecurityTokenResponse);
 
                 Console.WriteLine($"SecurityToken: '{token}'.");
             }

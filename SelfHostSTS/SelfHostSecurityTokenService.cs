@@ -18,10 +18,11 @@ namespace SelfHostSTS
         /// <summary>
         /// Constructor.
         /// </summary>
-        /// <param name="configuration"></param>
-        public SelfHostSecurityTokenService(SecurityTokenServiceConfiguration configuration)
-            : base(configuration)
+        /// <param name="selfHostSecurityTokenServiceConfiguration"></param>
+        public SelfHostSecurityTokenService(SelfHostSecurityTokenServiceConfiguration selfHostSecurityTokenServiceConfiguration)
+            : base(selfHostSecurityTokenServiceConfiguration)
         {
+            SelfHostSecurityTokenServiceConfiguration = selfHostSecurityTokenServiceConfiguration;
         }
 
         /// <summary>
@@ -47,9 +48,11 @@ namespace SelfHostSTS
             if (string.IsNullOrWhiteSpace(request.AppliesTo.Uri.OriginalString))
                 throw new InvalidProgramException("request.AppliesTo.Uri.AbsoluteUri cannot be null or only whitespace");
 
+            var ski = new SecurityKeyIdentifier();
+            ski.Add(new X509IssuerSerialKeyIdentifierClause(SelfHostSecurityTokenServiceConfiguration.RelyingPartyCertificate));
             var scope = new Scope(request.AppliesTo.Uri.OriginalString, SecurityTokenServiceConfiguration.SigningCredentials)
             {
-                //EncryptingCredentials = new X509EncryptingCredentials(SecurityTokenServiceConfiguration.ServiceCertificate),
+                EncryptingCredentials = new X509EncryptingCredentials(SelfHostSecurityTokenServiceConfiguration.RelyingPartyCertificate, new SecurityKeyIdentifier(new X509IssuerSerialKeyIdentifierClause(SelfHostSecurityTokenServiceConfiguration.RelyingPartyCertificate))),
                 SymmetricKeyEncryptionRequired = true,
                 TokenEncryptionRequired = false
             };
@@ -129,9 +132,7 @@ namespace SelfHostSTS
                     }
                     else
                     {
-                        result = new SymmetricProofDescriptor(request.KeySizeInBits.Value, requestorWrappingCredentials);
-                        //result = new SymmetricProofDescriptor(request.KeySizeInBits.Value, targetWrappingCredentials,
-                        //                                       requestorWrappingCredentials, request.EncryptWith);
+                        result = new SymmetricProofDescriptor(request.KeySizeInBits.Value, targetWrappingCredentials);
                     }
                 }
                 else
@@ -199,7 +200,9 @@ namespace SelfHostSTS
         //     request is null.
         protected override EncryptingCredentials GetRequestorProofEncryptingCredentials(RequestSecurityToken request)
         {
-            return new X509EncryptingCredentials(SecurityTokenServiceConfiguration.ServiceCertificate);
+            return new X509EncryptingCredentials(SelfHostSecurityTokenServiceConfiguration.RelyingPartyCertificate);
         }
+
+        public SelfHostSecurityTokenServiceConfiguration SelfHostSecurityTokenServiceConfiguration { get; }
     }
 }

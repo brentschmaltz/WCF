@@ -6,7 +6,7 @@
     internal static class Attributes
     {
         /// <summary>
-        /// This is the registry key where this package gets installed. The last part of the packge is replaced by the GUID value of this package.
+        /// These are the name of configuration values needed to run the STS.
         /// </summary>
         internal const string BaseAddress = "baseAddress";
         internal const string CertificateLocation = "certificateLocation";
@@ -14,10 +14,13 @@
         internal const string HttpPort = "httpPort";
         internal const string HttpsPort = "httpsPort";
         internal const string IssuerName = "issuerName";
-        internal const string SSLCertificate = "sslCertificate";
-        internal const string SSLCertificatePassword = "sslCertificatePassword";
         internal const string MetadataCertificate = "metadataCertificate";
         internal const string MetadataCertificatePassword = "metadataCertificatePassword";
+        internal const string RelyingPartyCertificate = "relyingPartyCertificate";
+        internal const string SigningCertificate = "signingCertificate";
+        internal const string SigningCertificatePassword = "sigingCertificatePassword";
+        internal const string SslCertificate = "sslCertificate";
+        internal const string SslCertificatePassword = "sslCertificatePassword";
         internal const string Type = "type";
         internal const string TokenFormat = "tokenFormat";
         internal const string Value = "value";

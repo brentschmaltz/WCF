@@ -1,5 +1,32 @@
+//------------------------------------------------------------------------------
+//
+// Copyright (c) Brent Schmaltz
+// All rights reserved.
+//
+// This code is licensed under the MIT License.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files(the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and / or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions :
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+//------------------------------------------------------------------------------
 
 using System;
+using System.Collections.Generic;
 using System.IdentityModel.Configuration;
 using System.IdentityModel.Metadata;
 using System.IdentityModel.Protocols.WSTrust;
@@ -12,7 +39,7 @@ using System.Xml.Linq;
 namespace SelfHostSTS
 {
     /// <summary>
-    /// Defines a class for providing first class properties of STS configuration.
+    /// Configures the STS
     /// </summary>
     public class SelfHostSecurityTokenServiceConfiguration : SecurityTokenServiceConfiguration
     {
@@ -21,26 +48,24 @@ namespace SelfHostSTS
         /// </summary>
         public SelfHostSecurityTokenServiceConfiguration()
         {
-            ConfigurationSection = SelfHostSecurityTokenServiceConfigurationSection.StsConfiguration;
+            RelyingPartyCertificate = new X509Certificate2("Certs\\RelyingParty.cer");
             SecurityTokenHandlerCollectionManager[SecurityTokenHandlerCollectionManager.Usage.ActAs] = SecurityTokenHandlerCollection.CreateDefaultSecurityTokenHandlerCollection();
             SecurityTokenHandlerCollectionManager[SecurityTokenHandlerCollectionManager.Usage.OnBehalfOf] = SecurityTokenHandlerCollection.CreateDefaultSecurityTokenHandlerCollection();
-            SigningCredentials = new X509SigningCredentials(new X509Certificate2(ConfigurationSection.MetadataPfxCertificateLocation, ConfigurationSection.MetadataCertificatePassword, X509KeyStorageFlags.PersistKeySet));
-            ServiceCertificate = new X509Certificate2(ConfigurationSection.SslPfxLocation, ConfigurationSection.SSLCertificatePassword, X509KeyStorageFlags.PersistKeySet);
+            SigningCredentials = new X509SigningCredentials(new X509Certificate2("Certs\\SelfHostSts.pfx", "SelfHostSts", X509KeyStorageFlags.EphemeralKeySet));
+            ServiceCertificate = new X509Certificate2("Certs\\SelfHostSts.pfx", "SelfHostSts", X509KeyStorageFlags.EphemeralKeySet);
             SecurityTokenService = typeof(SelfHostSecurityTokenService);
-            TokenIssuerName = ConfigurationSection.IssuerName;
+            TokenIssuerName = "SelfHostSts";
         }
 
-        public string BaseAddress => ConfigurationSection.BaseAddress;
+        public string BaseAddress => "127.0.0.1:";
 
-        private SelfHostSecurityTokenServiceConfigurationSection ConfigurationSection
+        IList<DisplayClaim> Claims
         {
-            get;
-            set;
+            get
+            {
+                return new List<DisplayClaim>();
+            }
         }
-
-        public string HttpPort => ConfigurationSection.HttpPort;
-
-        public string HttpsPort => ConfigurationSection.HttpsPort;
 
         /// <summary>
         /// Gets the federation metadata.
@@ -48,9 +73,9 @@ namespace SelfHostSTS
         /// <returns></returns>
         public XElement GetFederationMetadata()
         {
-            var passiveEndpoint = new EndpointReference(ConfigurationSection.BaseAddress + ConfigurationSection.HttpsPort + Constants.WSFedSTSIssue);
-            var activeEndpoint = new EndpointReference(ConfigurationSection.BaseAddress + ConfigurationSection.HttpsPort + Constants.WSTrust13);
-            var entityDescriptor = new EntityDescriptor(new EntityId(ConfigurationSection.IssuerName));           
+            var passiveEndpoint = new EndpointReference(BaseAddress + HttpsPort + Constants.WSFedSTSIssue);
+            var activeEndpoint = new EndpointReference(BaseAddress + HttpsPort + Constants.WSTrust13);
+            var entityDescriptor = new EntityDescriptor(new EntityId(TokenIssuerName));
             var securityTokenServiceDescriptor = new SecurityTokenServiceDescriptor();
             entityDescriptor.RoleDescriptors.Add(securityTokenServiceDescriptor);
 
@@ -58,19 +83,14 @@ namespace SelfHostSTS
             signingKey.Use = KeyType.Signing;
             securityTokenServiceDescriptor.Keys.Add(signingKey);
 
-            for (int i = 0; i < ConfigurationSection.Claims.Count; i++)
-            {
-                securityTokenServiceDescriptor.ClaimTypesOffered.Add(new DisplayClaim(ConfigurationSection.Claims[i].Type, ConfigurationSection.Claims[i].DisplayName, string.Empty));
-            }
+            foreach (var claim in Claims)
+                securityTokenServiceDescriptor.ClaimTypesOffered.Add(new DisplayClaim(claim.ClaimType, claim.DisplayValue, string.Empty));
 
             securityTokenServiceDescriptor.PassiveRequestorEndpoints.Add(passiveEndpoint);
-            securityTokenServiceDescriptor.SecurityTokenServiceEndpoints.Add(activeEndpoint);
-
-
             securityTokenServiceDescriptor.ProtocolsSupported.Add(new Uri(Constants.WSFederationMetadataNamespace));
             securityTokenServiceDescriptor.ProtocolsSupported.Add(new Uri(Constants.WSTrust13Namespace));
             securityTokenServiceDescriptor.ProtocolsSupported.Add(new Uri(Constants.WSTrustFeb2005Namespace));
-
+            securityTokenServiceDescriptor.SecurityTokenServiceEndpoints.Add(activeEndpoint);
             entityDescriptor.SigningCredentials = SigningCredentials;
 
             var serializer = new MetadataSerializer();
@@ -88,5 +108,11 @@ namespace SelfHostSTS
 
             return federationMetadata;
         }
+
+        public string HttpPort => "8080";
+
+        public string HttpsPort => "5443";
+
+        public X509Certificate2 RelyingPartyCertificate { get; }
     }
 }

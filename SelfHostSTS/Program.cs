@@ -1,4 +1,31 @@
-﻿using System;
+﻿//------------------------------------------------------------------------------
+//
+// Copyright (c) Brent Schmaltz
+// All rights reserved.
+//
+// This code is licensed under the MIT License.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files(the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and / or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions :
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+//------------------------------------------------------------------------------
+
+using System;
 using System.Globalization;
 using System.ServiceModel;
 using System.ServiceModel.Channels;
@@ -7,8 +34,7 @@ using System.ServiceModel.Security.Tokens;
 using System.ServiceModel.Web;
 using WCFSecurityUtilities;
 
-// netsh http add sslcert ipport=127.0.0.1:443 certhash=5008e9b6f4995c472a67c16cc18dad36acf4be38 appid={00112233-4455-6677-8899-AABBCCDDEEFF}
-// netsh http add sslcert ipport=127.0.0.1:5443 certhash=cfb894905fb847d8da1d3df6886ebe22b3b533d8 appid={00112233-4455-6677-8899-AABBCCDDEEFF}
+// netsh http add sslcert ipport=127.0.0.1:5443 certhash=c1d70e04acdf0cd10901df1c98e6b080dda54f56 appid={00112233-4455-6677-8899-AABBCCDDEEFF}
 
 namespace SelfHostSTS
 {
@@ -19,7 +45,7 @@ namespace SelfHostSTS
         private static string WindowsMixed = "trust/13/windowsmixed";
         private static string _endpointNameTransportIssuerSaml20 = "trust/13/transportIssueSaml20";
         private static string _endpointNameTransportIssuerSaml = "trust/13/transportIssueSaml";
-        private static string _endpointNameTransportUserName = "trust/13/usernamemixed";
+        private static string _endpointNameUsernameMixed = "trust/13/usernamemixed";
 
         static void Main(string[] args)
         {
@@ -87,7 +113,7 @@ namespace SelfHostSTS
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.TransportWithMessageCredential, false, HttpsWSTrust13Address, _endpointNameTransportIssuerSaml20, MessageCredentialType.IssuedToken);
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.TransportWithMessageCredential, false, HttpsWSTrust13Address, _endpointNameTransportIssuerSaml, MessageCredentialType.IssuedToken);
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Message, false, HttpWSTrust13Address, _endpointNameMessageIWA, MessageCredentialType.Windows);
-            AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.TransportWithMessageCredential, false, HttpsWSTrust13Address, _endpointNameTransportUserName, MessageCredentialType.UserName);
+            AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.TransportWithMessageCredential, false, HttpsWSTrust13Address, _endpointNameUsernameMixed, MessageCredentialType.UserName);
             AddBinding(WSTrustServiceHost, typeof(WS2007HttpBinding), SecurityMode.Message, false, HttpWSTrust13Address, WindowsMixed, MessageCredentialType.UserName);
 
             // Trust 1.3 / transport / windows
@@ -98,7 +124,11 @@ namespace SelfHostSTS
             WSTrustServiceHost.AddServiceEndpoint(typeof(IWSTrust13SyncContract), binding, HttpsWSTrust13Address + WindowsTransport);
         }
 
-        private static SelfHostSecurityTokenServiceConfiguration Configuration { get; set; }
+        private static SelfHostSecurityTokenServiceConfiguration Configuration
+        { 
+            get;
+            set; 
+        }
 
         private static void ConfigureSts()
         {
