@@ -1,0 +1,996 @@
+﻿// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// See the LICENSE file in the project root for more information.
+
+using System.IdentityModel;
+using System.IdentityModel.Tokens;
+using System.IO;
+using System.ServiceModel.Channels;
+using System.ServiceModel.Federation;
+using System.ServiceModel.Federation.System.Runtime;
+using System.Text;
+using System.Threading.Tasks;
+using System.Xml;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.WsTrust;
+using Microsoft.IdentityModel.Tokens;
+
+namespace System.ServiceModel.Security
+{
+    /// <summary>
+    /// A channel that is used to send WS-Trust messages to an STS.
+    /// </summary>
+    public class WSTrustChannel : IWSTrustChannelContract, IChannel, ICommunicationObject
+    {
+        // This class is used to maintain state for async operations
+        internal class WSTrustChannelAsyncResult : AsyncResult
+        {
+            public WSTrustChannelAsyncResult(IWSTrustContract client,
+                                              WsTrustRequest trustRequest,
+                                              WsTrustSerializer trustSerializer,
+                                              Message message,
+                                              AsyncCallback callback,
+                                              object state)
+                : base(callback, state)
+            {
+                Client = client;
+                TrustRequest = trustRequest;
+                TrustSerializer = trustSerializer;
+
+                // TODO - error messages
+                if (trustRequest.WsTrustVersion == WsTrustVersion.Trust13)
+                    TrustActions = WsTrustActions.Trust13;
+                else if (trustRequest.WsTrustVersion == WsTrustVersion.TrustFeb2005)
+                    TrustActions = WsTrustActions.TrustFeb2005;
+                else if (trustRequest.WsTrustVersion == WsTrustVersion.Trust14)
+                    TrustActions = WsTrustActions.Trust14;
+                else
+                    throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new NotSupportedException("SR.GetString(SR.ID3141, requestType.ToString()"));
+
+                if (trustRequest.RequestType.Equals(TrustActions.Issue))
+                    Client.BeginIssue(message, OnOperationCompleted, state);
+                else if (trustRequest.RequestType.Equals(TrustActions.Cancel))
+                    Client.BeginCancel(message, OnOperationCompleted, state);
+                else if (trustRequest.RequestType.Equals(TrustActions.Renew))
+                    Client.BeginRenew(message, OnOperationCompleted, state);
+                else if (trustRequest.RequestType.Equals(TrustActions.Validate))
+                    Client.BeginValidate(message, OnOperationCompleted, state);
+                else
+                    throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new InvalidOperationException($"operation not supported: {TrustRequest.RequestType}"));
+            }
+
+            public IWSTrustContract Client { get; }
+
+            public WsTrustRequest TrustRequest { get; }
+
+            public WsTrustActions TrustActions { get; }
+
+            public Message Message { get; private set; }
+
+            public WsTrustSerializer TrustSerializer { get; }
+
+            public new static Message End(IAsyncResult iar)
+            {
+                // TODO - error message
+                AsyncResult.End(iar);
+                WSTrustChannelAsyncResult tcar = iar as WSTrustChannelAsyncResult;
+                if (tcar == null)
+                    throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new InvalidOperationException($"Expected Type: '{typeof(WSTrustChannelAsyncResult)}', got: {iar.GetType()}."));
+
+                return tcar.Message;
+            }
+
+            void OnOperationCompleted(IAsyncResult iar)
+            {
+                try
+                {
+                    Message = EndOperation(iar);
+                    Complete(iar.CompletedSynchronously);
+                }
+#pragma warning disable CA1031 // Do not catch general exception types
+                catch (Exception ex)
+#pragma warning restore CA1031 // Do not catch general exception types
+                {
+                    // TODO - what about this exception model?
+                    //if (DiagnosticUtil.ExceptionUtil.IsFatal(ex))
+                    //{
+                    //    throw;
+                    //}
+                    Complete(false, ex);
+                }
+            }
+
+            // TODO - error message
+            Message EndOperation(IAsyncResult iar)
+            {
+                if (TrustRequest.RequestType.Equals(TrustActions.Issue))
+                    return Client.EndIssue(iar);
+                else if (TrustRequest.RequestType.Equals(TrustActions.Cancel))
+                    return Client.EndCancel(iar);
+                else if (TrustRequest.RequestType.Equals(TrustActions.Renew))
+                    return Client.EndRenew(iar);
+                else if (TrustRequest.RequestType.Equals(TrustActions.Validate))
+                    return Client.EndValidate(iar);
+                else
+                    throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new InvalidOperationException($"operation not supported: {TrustRequest.RequestType}"));
+            }
+        }
+
+        private const int FaultMaxBufferSize = 20 * 1024;
+
+        /// <summary>
+        /// Constructs a <see cref="WSTrustChannel" />.
+        /// </summary>
+        /// <param name="channelfactory">The <see cref="WSTrustChannelFactory" /> that is creating this object.</param>
+        /// <param name="innerChanel">The <see cref="IWSTrustChannelContract" /> this object will be used to send and receive <see cref="Message" /> objects.</param>
+        /// <param name="trustVersion">The version of WS-Trust this channel will use for serializing <see cref="Message" /> objects.</param>
+        /// <param name="trustSerializer">The <see cref="WsTrustSerializer" /> this channel will use for serializing WS-Trust request messages.</param>
+        public WSTrustChannel(WSTrustChannelFactory channelfactory,
+                              IWSTrustChannelContract innerChanel,
+                              WsTrustVersion trustVersion)
+        {
+            _ = channelfactory ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(channelfactory));
+            _ = innerChanel ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(innerChanel));
+            _ = trustVersion ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(trustVersion));
+
+            // TODO - error message
+            Channel = innerChanel as IChannel;
+            if (Channel == null)
+                throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new InvalidOperationException("SR.GetString(SR.ID3286)"));
+
+            InnerChannel = innerChanel;
+            ChannelFactory = channelfactory;
+            SerializationContext = new WsSerializationContext(trustVersion);
+            TrustSerializer = new WsTrustSerializer();
+
+            // If possible use the Binding's MessageVersion for creating our requests.
+            if (ChannelFactory?.Endpoint?.Binding?.MessageVersion != null)
+                MessageVersion = ChannelFactory.Endpoint.Binding.MessageVersion;
+        }
+
+        /// <summary>
+        /// Sends a WS-Trust Issue message to an endpoint STS
+        /// </summary>
+        /// <param name="timeout">wait time</param>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest" /> that represents the request to the STS.</param>
+        /// <returns>A <see cref="SecurityToken" /> issued by the STS.</returns>
+        public async Task<IdentityModel.Tokens.SecurityToken> IssueAsync(TimeSpan timeout, WsTrustRequest trustRequest)
+        {
+            IdentityModel.Tokens.SecurityToken token = await IssueCoreAsync(timeout, trustRequest);
+            if (token == null)
+                throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new SecurityTokenException("SR.Format(SR.TokenProviderUnableToGetToken, this"));
+
+            return token;
+        }
+
+        protected async virtual Task<IdentityModel.Tokens.SecurityToken> IssueCoreAsync(TimeSpan timeout, WsTrustRequest trustRequest)
+        {
+            using (var memeoryStream = new MemoryStream())
+            {
+                var writer = XmlDictionaryWriter.CreateTextWriter(memeoryStream, Encoding.UTF8);
+                TrustSerializer.WriteRequest(writer, SerializationContext.TrustVersion, trustRequest);
+                writer.Flush();
+                var reader = XmlDictionaryReader.CreateTextReader(memeoryStream.ToArray(), XmlDictionaryReaderQuotas.Max);
+                await Task.Factory.FromAsync(Channel.BeginOpen, Channel.EndOpen, null, TaskCreationOptions.None);
+                try
+                {
+                    Message requestMessage = Message.CreateMessage(MessageVersion.Soap12WSAddressing10, SerializationContext.TrustActions.IssueRequest, reader);
+                    Message reply = await Task.Factory.FromAsync(InnerChannel.BeginIssue, InnerChannel.EndIssue, requestMessage, null, TaskCreationOptions.None);
+                    var trustResponse = TrustSerializer.ReadResponse(reply.GetReaderAtBodyContents());
+                    return GetTokenFromResponse(trustRequest, trustResponse);
+                }
+                finally
+                {
+                    await Task.Factory.FromAsync(Channel.BeginClose, Channel.EndClose, null, TaskCreationOptions.None);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The <see cref="IChannel" /> this class uses for sending and receiving <see cref="Message" /> objects.
+        /// </summary>
+        private IChannel Channel
+        {
+            get;
+        }
+
+        /// <summary>
+        /// Gets the <see cref="WSTrustChannelFactory" /> that created this object.
+        /// </summary>
+        private WSTrustChannelFactory ChannelFactory
+        {
+            get;
+        }
+
+        /// <summary>
+        /// Gets the <see cref="IWSTrustChannelContract" /> this class uses for sending and receiving
+        /// <see cref="Message" /> objects.
+        /// </summary>
+        private IWSTrustChannelContract InnerChannel
+        {
+            get;
+        }
+
+        /// <summary>
+        /// Gets the version of WS-Trust this channel will use for serializing <see cref="Message" /> objects.
+        /// </summary>
+        private MessageVersion MessageVersion
+        {
+            get;
+        } = MessageVersion.Default;
+
+        /// <summary>
+        /// Gets the version of WS-Trust this channel will use for serializing <see cref="Message" /> objects.
+        /// </summary>
+        private WsSerializationContext SerializationContext
+        {
+            get;
+        }
+
+        private WsTrustActions TrustActions { get; }
+
+        ///// <summary>
+        ///// Gets the <see cref="WsTrustSerializer" /> this channel will used for serializing WS-Trust request messages.
+        ///// </summary>
+        private WsTrustSerializer TrustSerializer
+        {
+            get;
+        }
+
+        /// <summary>
+        /// Creates a <see cref="Message"/> object that represents a WS-Trust RST message.
+        /// </summary>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest"/> to serialize into the message.</param>
+        /// <returns>The <see cref="Message" /> object that represents the WS-Trust message.</returns>
+        protected virtual Message CreateRequest(WsTrustRequest trustRequest)
+        {
+            _ = trustRequest ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(trustRequest));
+            return Message.CreateMessage(MessageVersion,
+                                         GetRequestAction(trustRequest),
+                                         new WSTrustRequestBodyWriter(trustRequest, TrustSerializer));
+        }
+
+        /// <summary>
+        /// De-serializes a <see cref="WsTrustResponse" /> from a <see cref="Message" />.
+        /// </summary>
+        /// <param name="message">The <see cref="Message" /> received from the WS-Trust endpoint.</param>
+        /// <returns>
+        /// The <see cref="WsTrustResponse" /> de-serialized from <paramref name="message"/>.
+        /// </returns>
+        protected virtual WsTrustResponse ReadResponse(Message message)
+        {
+            _ = message ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(message));
+
+            if (message.IsFault)
+            {
+                MessageFault fault = MessageFault.CreateFault(message, FaultMaxBufferSize);
+                string action = null;
+                if (message.Headers != null)
+                    action = message.Headers.Action;
+
+                FaultException faultException = FaultException.CreateFault(fault, action);
+
+                throw faultException;
+            }
+
+            return TrustSerializer.ReadResponse(message.GetReaderAtBodyContents());
+        }
+
+        /// <summary>
+        /// Gets the WS-Addressing SOAP action that corresponds to the requestType and WS-Trust version.
+        /// </summary>
+        /// <param name="requestType">The type of WS-Trust request. This parameter must be one of the
+        /// string constants in <see cref="WsTrustActions" />.</param>
+        /// <param name="trustVersion">The <see cref="WsTrustVersion" /> of the request.</param>
+        /// <returns>The WS-Addressing action to use.</returns>
+        public static string GetRequestAction(WsTrustRequest trustRequest)
+        {
+            // TODO - error messages.
+            _ = trustRequest ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(trustRequest));
+
+            WsTrustActions wsTrustActions;
+            if (trustRequest.WsTrustVersion == WsTrustVersion.Trust13)
+                wsTrustActions = WsTrustActions.Trust13;
+            else if (trustRequest.WsTrustVersion == WsTrustVersion.TrustFeb2005)
+                wsTrustActions = WsTrustActions.TrustFeb2005;
+            else if (trustRequest.WsTrustVersion == WsTrustVersion.Trust14)
+                wsTrustActions = WsTrustActions.Trust14;
+            else
+                throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new NotSupportedException("SR.GetString(SR.ID3141, requestType.ToString()"));
+
+            if (trustRequest.RequestType.Equals(wsTrustActions.Issue))
+                return wsTrustActions.IssueRequest;
+            else if (trustRequest.RequestType.Equals(wsTrustActions.Cancel))
+                return wsTrustActions.CancelRequest;
+            else if (trustRequest.RequestType.Equals(wsTrustActions.Renew))
+                return wsTrustActions.RenewRequest;
+            else if (trustRequest.RequestType.Equals(wsTrustActions.Validate))
+                return wsTrustActions.ValidateRequest;
+            else
+               throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new NotSupportedException($"SR.GetString(SR.ID3141, requestType.ToString())."));
+        }
+
+        /// <summary>
+        ///     Get the security token from the RSTR
+        /// </summary>
+        /// <param name="trustRequest">The request used to ask for the security token.</param>
+        /// <param name="trustResponse">The response containing the security token</param>
+        /// <returns>parsed security token.</returns>
+        /// <exception cref="ArgumentNullException">If response is null</exception>
+        public virtual IdentityModel.Tokens.SecurityToken GetTokenFromResponse(WsTrustRequest trustRequest, WsTrustResponse trustResponse)
+        {
+            _ = trustRequest ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(trustRequest));
+            _ = trustResponse ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(trustRequest));
+
+            // TODO - do we need this IsFinal, what is it really for?
+            // TODO - exception message
+            //if (!trustResponse.IsFinal)
+            //    DiagnosticUtility.ExceptionUtility.ThrowHelperError(new NotImplementedException("SR.GetString(SR.ID3270)"));
+
+            if (trustResponse.RequestSecurityTokenResponseCollection.Count == 0)
+                return null;
+
+            RequestSecurityTokenResponse response = trustResponse.RequestSecurityTokenResponseCollection[0];
+
+            // Get attached and unattached references
+            GenericXmlSecurityKeyIdentifierClause internalSecurityKeyIdentifierClause = null;
+            if (response.AttachedReference != null)
+                internalSecurityKeyIdentifierClause = WSTrustUtilities.GetSecurityKeyIdentifierForTokenReference(response.AttachedReference);
+
+            GenericXmlSecurityKeyIdentifierClause externalSecurityKeyIdentifierClause = null;
+            if (response.UnattachedReference != null)
+                externalSecurityKeyIdentifierClause = WSTrustUtilities.GetSecurityKeyIdentifierForTokenReference(response.UnattachedReference);
+
+            // Get proof token
+            // TODO - do we need SecurityAlgorithmSuite? if so, can we get it from the binding on the factory?
+            IdentityModel.Tokens.SecurityToken proofToken = WSTrustUtilities.GetProofToken(trustRequest, response, SerializationContext, null);
+
+            // Get lifetime
+            DateTime created = response.Lifetime?.Created ?? DateTime.UtcNow;
+            DateTime expires = response.Lifetime?.Expires ?? created.AddDays(1);
+
+            return new GenericXmlSecurityToken(response.RequestedSecurityToken.TokenElement,
+                                               proofToken,
+                                               created,
+                                               expires,
+                                               internalSecurityKeyIdentifierClause,
+                                               externalSecurityKeyIdentifierClause,
+                                               null);
+        }
+
+#pragma warning disable CA1801 // Review unused parameters
+        internal static IdentityModel.Tokens.SecurityToken GetUseKeySecurityToken(UseKey useKey, string requestKeyType)
+#pragma warning restore CA1801 // Review unused parameters
+        {
+            // TODO - Not sure about this usekey, do we need to support this?
+            //if (useKey != null && useKey.SecurityToken != null)
+            //{
+            //    return useKey.SecurityToken;
+            //}
+            //else
+            //{
+                throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new NotSupportedException("UseKeys are not supported."));
+            //}
+        }
+
+        /// <summary>
+        /// The types of proof keys that can be issued in WS-Trust
+        /// </summary>
+        internal enum ProofKeyType { Unknown, Bearer, Symmetric, Asymmetric };
+
+        /// <summary>
+        /// Determines the ProofKeyType corresponding to the Uri contents
+        /// enclosed in WS-Trust KeyType elements.
+        /// </summary>
+        internal static ProofKeyType GetKeyType(string keyType)
+        {
+            if (keyType == WsTrustConstants.Trust13.WsTrustKeyTypes.Symmetric
+                || keyType == WsTrustConstants.Trust14.WsTrustKeyTypes.Symmetric
+                || keyType == WsTrustConstants.TrustFeb2005.WsTrustKeyTypes.Symmetric
+                || String.IsNullOrEmpty(keyType))
+            {
+                return ProofKeyType.Symmetric;
+            }
+            if (keyType == WsTrustConstants.Trust13.WsTrustKeyTypes.PublicKey
+                || keyType == WsTrustConstants.Trust14.WsTrustKeyTypes.PublicKey
+                || keyType == WsTrustConstants.TrustFeb2005.WsTrustKeyTypes.PublicKey)
+            {
+                return ProofKeyType.Asymmetric;
+            }
+            if (keyType == WsTrustConstants.Trust13.WsTrustKeyTypes.Bearer
+                || keyType == WsTrustConstants.Trust14.WsTrustKeyTypes.Bearer
+                || keyType == WsTrustConstants.TrustFeb2005.WsTrustKeyTypes.Bearer)
+            {
+                return ProofKeyType.Bearer;
+            }
+            else
+            {
+                return ProofKeyType.Unknown;
+            }
+        }
+
+        internal static bool IsPsha1(string algorithm)
+        {
+            return (algorithm == WsTrustConstants.Trust13.WsTrustKeyTypes.PSHA1
+                  || algorithm == WsTrustConstants.Trust14.WsTrustKeyTypes.PSHA1
+                  || algorithm == WsTrustConstants.TrustFeb2005.WsTrustKeyTypes.PSHA1);
+        }
+
+        #region IChannel Members
+
+        /// <summary>
+        /// Returns a typed object requested, if present, from the appropriate layer in the channel stack.
+        /// </summary>        
+        /// <typeparam name="T">The typed object for which the method is querying.</typeparam>
+        /// <returns>The typed object <typeparamref name="T"/> requested if it is present or nullNothingnullptra null reference (Nothing in Visual Basic) if it is not.</returns>
+        public T GetProperty<T>() where T : class
+        {
+            return Channel.GetProperty<T>();
+        }
+
+        #endregion
+
+        #region ICommunicationObject Members
+
+        /// <summary>
+        /// Causes a communication object to transition immediately from its current state into the closed state. 
+        /// </summary>
+        public void Abort()
+        {
+            Channel.Abort();
+        }
+
+        /// <summary>
+        /// Begins an asynchronous operation to close a communication object with a specified timeout.
+        /// </summary>
+        /// <param name="timeout">
+        /// The <see cref="TimeSpan" /> that specifies how long the close operation has to complete before timing out.
+        /// </param>
+        /// <param name="callback">
+        /// The <see cref="AsyncCallback" /> delegate that receives notification of the completion of the asynchronous 
+        /// close operation.
+        /// </param>
+        /// <param name="state">
+        /// An object, specified by the application, that contains state information associated with the asynchronous 
+        /// close operation.
+        /// </param>
+        /// <returns>The <see cref="IAsyncResult" /> that references the asynchronous close operation.</returns>
+        public IAsyncResult BeginClose(TimeSpan timeout, AsyncCallback callback, object state)
+        {
+            return Channel.BeginClose(timeout, callback, state);
+        }
+
+        /// <summary>
+        /// Begins an asynchronous operation to close a communication object.
+        /// </summary>
+        /// <param name="callback">
+        /// The <see cref="AsyncCallback" /> delegate that receives notification of the completion of the asynchronous 
+        /// close operation.
+        /// </param>
+        /// <param name="state">
+        /// An object, specified by the application, that contains state information associated with the asynchronous 
+        /// close operation.
+        /// </param>
+        /// <returns>The <see cref="IAsyncResult" /> that references the asynchronous close operation.</returns>
+        public IAsyncResult BeginClose(AsyncCallback callback, object state)
+        {
+            return Channel.BeginClose(callback, state);
+        }
+
+        /// <summary>
+        /// Begins an asynchronous operation to open a communication object within a specified interval of time.
+        /// </summary>
+        /// <param name="timeout">
+        /// The <see cref="TimeSpan" /> that specifies how long the open operation has to complete before timing out.
+        /// </param>
+        /// <param name="callback">
+        /// The <see cref="AsyncCallback" /> delegate that receives notification of the completion of the asynchronous 
+        /// close operation.
+        /// </param>
+        /// <param name="state">
+        /// An object, specified by the application, that contains state information associated with the asynchronous 
+        /// close operation.
+        /// </param>
+        /// <returns>The <see cref="IAsyncResult" /> that references the asynchronous open operation.</returns>
+        public IAsyncResult BeginOpen(TimeSpan timeout, AsyncCallback callback, object state)
+        {
+            return Channel.BeginOpen(timeout, callback, state);
+        }
+
+        /// <summary>
+        /// Begins an asynchronous operation to open a communication object.
+        /// </summary>
+        /// <param name="callback">
+        /// The <see cref="AsyncCallback" /> delegate that receives notification of the completion of the asynchronous 
+        /// close operation.
+        /// </param>
+        /// <param name="state">
+        /// An object, specified by the application, that contains state information associated with the asynchronous 
+        /// close operation.
+        /// </param>
+        /// <returns>The <see cref="IAsyncResult" /> that references the asynchronous open operation.</returns>
+        public IAsyncResult BeginOpen(AsyncCallback callback, object state)
+        {
+            return Channel.BeginOpen(callback, state);
+        }
+
+        /// <summary>
+        /// Causes a communication object to transition from its current state into the closed state.
+        /// </summary>
+        /// <param name="timeout">
+        /// The <see cref="TimeSpan" /> that specifies how long the open operation has to complete before timing out.
+        /// </param>
+        public void Close(TimeSpan timeout)
+        {
+            Channel.Close(timeout);
+        }
+
+        /// <summary>
+        /// Causes a communication object to transition from its current state into the closed state.
+        /// </summary>
+        public void Close()
+        {
+            Channel.Close();
+        }
+
+        /// <summary>
+        /// Occurs when the communication object completes its transition from the closing state into the closed state.
+        /// </summary>
+        public event EventHandler Closed
+        {
+            add
+            {
+                Channel.Closed += value;
+            }
+            remove
+            {
+                Channel.Closed -= value;
+            }
+        }
+
+        /// <summary>
+        /// Occurs when the communication object first enters the closing state.
+        /// </summary>
+        public event EventHandler Closing
+        {
+            add
+            {
+                Channel.Closing += value;
+            }
+            remove
+            {
+                Channel.Closing -= value;
+            }
+        }
+
+        /// <summary>
+        /// Completes an asynchronous operation to close a communication object.
+        /// </summary>
+        /// <param name="result">The <see cref="IAsyncResult" /> that is returned by a call to the BeginClose() method.</param>
+        public void EndClose(IAsyncResult result)
+        {
+            Channel.EndClose(result);
+        }
+
+        /// <summary>
+        /// Completes an asynchronous operation to open a communication object.
+        /// </summary>
+        /// <param name="result">The <see cref="IAsyncResult" /> that is returned by a call to the BeginClose() method.</param>
+        public void EndOpen(IAsyncResult result)
+        {
+            Channel.EndOpen(result);
+        }
+
+        /// <summary>
+        /// Occurs when the communication object first enters the faulted state.
+        /// </summary>
+        public event EventHandler Faulted
+        {
+            add
+            {
+                Channel.Faulted += value;
+            }
+            remove
+            {
+                Channel.Faulted -= value;
+            }
+        }
+
+        /// <summary>
+        /// Causes a communication object to transition from the created state into the opened state within a specified interval of time.
+        /// </summary>
+        /// <param name="timeout">
+        /// The <see cref="TimeSpan" /> that specifies how long the open operation has to complete before timing out.
+        /// </param>
+        public void Open(TimeSpan timeout)
+        {
+            Channel.Open(timeout);
+        }
+
+        /// <summary>
+        /// Causes a communication object to transition from the created state into the opened state. 
+        /// </summary>
+        public void Open()
+        {
+            Channel.Open();
+        }
+
+        /// <summary>
+        /// Occurs when the communication object completes its transition from the opening state into the opened state.
+        /// </summary>
+        public event EventHandler  Opened
+        {
+            add
+            {
+                Channel.Opened += value;
+            }
+            remove
+            {
+                Channel.Opened -= value;
+            }
+        }
+
+        /// <summary>
+        /// Occurs when the communication object first enters the opening state.
+        /// </summary>
+        public event EventHandler  Opening
+        {
+            add
+            {
+                Channel.Opening += value;
+            }
+            remove
+            {
+                Channel.Opening -= value;
+            }
+        }
+
+        /// <summary>
+        /// Gets the current state of the communication-oriented object.
+        /// </summary>
+        public System.ServiceModel.CommunicationState State
+        {
+            get { return Channel.State; }
+        }
+
+        #endregion
+
+        #region IWSTrustChannelContract Members
+
+        /// <summary>
+        /// Sends a WS-Trust Cancel message to an endpoint.
+        /// </summary>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest" /> that represents the request to the STS.</param>
+        /// <returns>The <see cref="WsTrustResponse" /> representing the STS response.</returns>
+        public virtual WsTrustResponse Cancel(WsTrustRequest trustRequest)
+        {
+            return ReadResponse(InnerChannel.Cancel(CreateRequest(trustRequest)));
+        }
+
+        /// <summary>
+        /// Sends a WS-Trust Issue message to an endpoint STS
+        /// </summary>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest" /> that represents the request to the STS.</param>
+        /// <returns>A <see cref="SecurityToken" /> that represents the token issued by the STS.</returns>
+        public virtual IdentityModel.Tokens.SecurityToken Issue(WsTrustRequest trustRequest)
+        {
+            Message request = CreateRequest(trustRequest);
+
+            Message response = InnerChannel.Issue(request);
+            var trustResponse = ReadResponse(response);
+
+            return GetTokenFromResponse(trustRequest, trustResponse);
+        }
+
+        /// <summary>
+        /// Sends a WS-Trust Renew message to an endpoint.
+        /// </summary>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest" /> that represents the request to the STS.</param>
+        /// <returns>The <see cref="WsTrustResponse" /> representing the STS response.</returns>
+        public virtual WsTrustResponse Renew(WsTrustRequest trustRequest)
+        {
+            return ReadResponse(InnerChannel.Renew(CreateRequest(trustRequest)));
+        }
+
+        /// <summary>
+        /// Sends a WS-Trust Validate message to an endpoint.
+        /// </summary>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest" /> that represents the request to the STS.</param>
+        /// <returns>The <see cref="WsTrustResponse" /> representing the STS response.</returns>
+        public virtual WsTrustResponse Validate(WsTrustRequest trustRequest)
+        {
+            return ReadResponse(InnerChannel.Validate(CreateRequest(trustRequest)));
+        }
+
+        #endregion
+
+        #region IWSTrustChannelContract Async Members
+
+        /// <summary>
+        /// Asynchronously sends a WS-Trust Cancel message to an endpoint.
+        /// </summary>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest" /> that represents the request to the STS.</param>
+        /// <param name="callback">An optional asynchronous callback, to be called when the send is complete.</param>
+        /// <param name="state">state information specified by the application.</param>
+        /// <returns>An <see cref="IAsyncResult" /> object that represents the asynchronous send, which could still 
+        /// be pending. </returns>
+        public IAsyncResult BeginCancel(WsTrustRequest trustRequest, AsyncCallback callback, object state)
+        {
+            return BeginOperation(trustRequest, callback, state);
+        }
+
+        /// <summary>
+        /// Completes the asynchronous send operation initiated by
+        /// <see cref="BeginCancel(WsTrustRequest,AsyncCallback,object)" />.
+        /// </summary>
+        /// <param name="result">A reference to the outstanding asynchronous send request.</param>
+        /// <param name="trustResponse">The <see cref="RequestSecurityTokenResponse" /> representing the STS response.</param>
+        public void EndCancel(IAsyncResult result, out WsTrustResponse trustResponse)
+        {
+            trustResponse = EndOperation(result);
+        }
+
+        /// <summary>
+        /// Asynchronously sends a WS-Trust Renew message to an endpoint.
+        /// </summary>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest" /> that represents the request to the STS.</param>
+        /// <param name="callback">An optional asynchronous callback, to be called when the send is complete.</param>
+        /// <param name="state">state information specified by the application.</param>
+        /// <returns>An <see cref="IAsyncResult" /> object that represents the asynchronous send, which could still 
+        /// be pending. </returns>
+        public IAsyncResult BeginIssue(WsTrustRequest trustRequest, AsyncCallback callback, object state)
+        {
+            return BeginOperation(trustRequest, callback, state);
+        }
+
+        /// <summary>
+        /// Asynchronously sends a WS-Trust Renew message to an endpoint.
+        /// </summary>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest" /> that represents the request to the STS.</param>
+        /// <param name="callback">An optional asynchronous callback, to be called when the send is complete.</param>
+        /// <param name="state">state information specified by the application.</param>
+        /// <returns>An <see cref="IAsyncResult" /> object that represents the asynchronous send, which could still 
+        /// be pending. </returns>
+        public IAsyncResult BeginIssueCore(TimeSpan timespan, WsTrustRequest trustRequest, AsyncCallback callback, object state)
+        {
+            return BeginOperation(trustRequest, callback, state);
+        }
+
+        protected virtual IdentityModel.Tokens.SecurityToken EndIssueCore(IAsyncResult result)
+        {
+            var ar = result.ToApmEnd<WSTrustChannelAsyncResult>();
+            return null;
+        }
+
+        //// If external concrete implementation overrides GetTokenCoreAsync and calls base.GetTokenCoreAsync, this will call into base class implementation in GetTokenCoreInternalAsync.
+        //// This pattern prevents a cycle of GetTokenCoreAsync wrapping {Begin|End}GetTokenCore and {Begin|End}GetTokenCore wrapping GetTokenCoreAsync.
+        //internal virtual Task<IdentityModel.Tokens.SecurityToken> BeginIssueCoreInternalAsync(TimeSpan timeout, WsTrustRequest trustRequest, AsyncCallback callback, object state)
+        //{
+        //    return Task.FromResult(IssueTokenCore(timeout));
+        //}
+
+        /// <summary>
+        /// Completes the asynchronous send operation initiated by
+        /// <see cref="BeginIssue(WsTrustRequest,AsyncCallback,object)" />.
+        /// </summary>
+        /// <param name="result">A reference to the outstanding asynchronous send request.</param>
+        /// <param name="trustResponse">The <see cref="RequestSecurityTokenResponse" /> representing the STS response.</param>
+        /// <returns>A <see cref="SecurityToken" /> that represents the token issued by the STS.</returns>
+        public IdentityModel.Tokens.SecurityToken EndIssue(IAsyncResult result, out WsTrustResponse trustResponse)
+        {
+            _ = result ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(result));
+
+            WSTrustChannelAsyncResult tcar = result as WSTrustChannelAsyncResult;
+            if (tcar == null)
+                throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new InvalidOperationException($"Expected Type: '{typeof(WSTrustChannelAsyncResult)}', got: {result.GetType()}."));
+
+            trustResponse = EndOperation(result);
+            return GetTokenFromResponse(tcar.TrustRequest, trustResponse);
+        }
+
+        /// <summary>
+        /// Asynchronously sends a WS-Trust Renew message to an endpoint.
+        /// </summary>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest" /> that represents the request to the STS.</param>
+        /// <param name="callback">An optional asynchronous callback, to be called when the send is complete.</param>
+        /// <param name="state">state information specified by the application.</param>
+        /// <returns>An <see cref="IAsyncResult" /> object that represents the asynchronous send, which could still 
+        /// be pending. </returns>
+        public IAsyncResult BeginRenew(WsTrustRequest trustRequest, AsyncCallback callback, object state)
+        {
+            return BeginOperation(trustRequest, callback, state);
+        }
+
+        /// <summary>
+        /// Completes the asynchronous send operation initiated by
+        /// <see cref="BeginRenew(WsTrustRequest,AsyncCallback,object)" />.
+        /// </summary>
+        /// <param name="result">A reference to the outstanding asynchronous send request.</param>
+        /// <param name="trustResponse">The <see cref="WsTrustResponse" /> representing the STS response.</param>
+        public void EndRenew(IAsyncResult result, out WsTrustResponse trustResponse)
+        {
+            _ = result ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(result));
+
+            WSTrustChannelAsyncResult tcar = result as WSTrustChannelAsyncResult;
+            if (tcar == null)
+                throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new InvalidOperationException($"Expected Type: '{typeof(WSTrustChannelAsyncResult)}', got: {result.GetType()}."));
+
+            trustResponse = EndOperation(result);
+        }
+
+        /// <summary>
+        /// Asynchronously sends a WS-Trust Validate message to an endpoint.
+        /// </summary>
+        /// <param name="trustRequest">The <see cref="WsTrustRequest" /> that represents the request to the STS.</param>
+        /// <param name="callback">An optional asynchronous callback, to be called when the send is complete.</param>
+        /// <param name="state">state information specified by the application.</param>
+        /// <returns>An <see cref="IAsyncResult" /> object that represents the asynchronous send, which could still 
+        /// be pending. </returns>
+        public IAsyncResult BeginValidate(WsTrustRequest trustRequest, AsyncCallback callback, object state)
+        {
+            return BeginOperation(trustRequest, callback, state);
+        }
+
+        /// <summary>
+        /// Completes the asynchronous send operation initiated by
+        /// <see cref="BeginValidate(WsTrustRequest,AsyncCallback,object)" />.
+        /// </summary>
+        /// <param name="result">A reference to the outstanding asynchronous send request.</param>
+        /// <param name="trustResponse">The <see cref="RequestSecurityTokenResponse" /> representing the STS response.</param>
+        public void EndValidate(IAsyncResult result, out WsTrustResponse trustResponse)
+        {
+            _ = result ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(result));
+
+            trustResponse = EndOperation(result);
+        }
+
+        #endregion
+
+        #region IWSTrustContract Members
+
+        /// <summary>
+        /// Sends a WS-Trust Cancel message to an endpoint.
+        /// </summary>
+        /// <param name="message">The <see cref="Message" /> that contains the instructions for the request to the STS.</param>
+        /// <returns>The <see cref="Message" /> returned from the STS.</returns>
+        public Message Cancel(Message message)
+        {
+            return InnerChannel.Cancel(message);
+        }
+
+        /// <summary>
+        /// Begins an asynchronous operation to send a WS-Trust Cancel message to an endpoint.
+        /// </summary>
+        /// <param name="message">The <see cref="Message" /> that contains the instructions for the request to the STS.</param>
+        /// <param name="callback">
+        /// The <see cref="AsyncCallback" /> delegate that receives notification of the completion of the asynchronous 
+        /// close operation.
+        /// </param>
+        /// <param name="state">state information specified by the application.</param>
+        /// <returns>The <see cref="IAsyncResult" /> that references the asynchronous close operation.</returns>
+        public IAsyncResult BeginCancel(Message message, AsyncCallback callback, object state)
+        {
+            return InnerChannel.BeginCancel(message, callback, state);
+        }
+
+        /// <summary>
+        /// Completes an asynchronous operation to send a WS-Trust Cancel message to an endpoint.
+        /// </summary>
+        /// <param name="asyncResult">The <see cref="IAsyncResult" /> that is returned by a call to the BeginClose() method.</param>
+        /// <returns>The <see cref="Message" /> returned from the STS.</returns>
+        public Message EndCancel(IAsyncResult asyncResult)
+        {
+            return InnerChannel.EndCancel(asyncResult);
+        }
+
+        /// <summary>
+        /// Sends a WS-Trust Issue message to an endpoint.
+        /// </summary>
+        /// <param name="message">The <see cref="Message" /> that contains the instructions for the request to the STS</param>
+        /// <returns>The <see cref="Message" /> returned from the STS</returns>
+        public Message Issue(Message message)
+        {
+            return InnerChannel.Issue(message);
+        }
+
+        /// <summary>
+        /// Begins an asynchronous operation to send a WS-Trust Issue request to a STS.
+        /// </summary>
+        /// <param name="message">the <see cref="Message" /> that contains the Issue request to a STS.</param>
+        /// <param name="callback">the <see cref="AsyncCallback" /> delegate that receives notification of the completion of the asynchronous Issue request.</param>
+        /// <param name="state">state information specified by the application.</param>
+        /// <returns>The <see cref="IAsyncResult" /> that references the asynchronous Issue request.</returns>
+        public IAsyncResult BeginIssue(Message message, AsyncCallback callback, object state)
+        {
+            return InnerChannel.BeginIssue(message, callback, state);
+        }
+
+        /// <summary>
+        /// Completes an asynchronous operation to send a WS-Trust Issue request to a STS.
+        /// </summary>
+        /// <param name="asyncResult">The <see cref="IAsyncResult" /> that is returned by <see cref="BeginIssue(Message, AsyncCallback, object)"/>.</param>
+        /// <returns>The <see cref="Message" /> returned from the STS.</returns>
+        public Message EndIssue(IAsyncResult asyncResult)
+        {
+            return InnerChannel.EndIssue(asyncResult);
+        }
+
+        /// <summary>
+        /// Sends a WS-Trust Renew message to a STS.
+        /// </summary>
+        /// <param name="message">The <see cref="Message" /> that contains the Renew request to a STS.</param>
+        /// <returns>The <see cref="Message" /> returned from the STS.</returns>
+        public Message Renew(Message message)
+        {
+            return InnerChannel.Renew(message);
+        }
+
+        /// <summary>
+        /// Begins an asynchronous operation to send a WS-Trust Renew request to a STS.
+        /// </summary>
+        /// <param name="message">the <see cref="Message"/> that contains Renew request to the STS.</param>
+        /// <param name="callback">the <see cref="AsyncCallback"/> delegate that receives notification of the completion of the asynchronous Renew request </param>
+        /// <param name="state">state information specified by the application.</param>
+        /// <returns>The <see cref="IAsyncResult" />that references the asynchronous Renew request.</returns>
+        public IAsyncResult BeginRenew(Message message, AsyncCallback callback, object state)
+        {
+            return InnerChannel.BeginRenew(message, callback, state);
+        }
+
+        /// <summary>
+        /// Completes an asynchronous operation to send a WS-Trust Renew request to a STS.
+        /// </summary>
+        /// <param name="asyncResult">the <see cref="IAsyncResult" /> that is returned by <see cref="BeginRenew(Message, AsyncCallback, object)"/>.</param>
+        /// <returns>The <see cref="Message" /> returned from the STS.</returns>
+        public Message EndRenew(IAsyncResult asyncResult)
+        {
+            return InnerChannel.EndRenew(asyncResult);
+        }
+
+        /// <summary>
+        /// Sends a WS-Trust Validate request to a STS.
+        /// </summary>
+        /// <param name="message">the <see cref="Message"/> that contains the Validate request.</param>
+        /// <returns>the <see cref="Message" /> returned from the STS.</returns>
+        public Message Validate(Message message)
+        {
+            return InnerChannel.Validate(message);
+        }
+
+        /// <summary>
+        /// Begins an asynchronous operation to send a WS-Trust Validate request to a STS.
+        /// </summary>
+        /// <param name="message">the <see cref="Message" /> that contains the Validate request.</param>
+        /// <param name="callback">the <see cref="AsyncCallback" /> delegate that receives notification of the completion of the asynchronous Validate request.</param>
+        /// <param name="state">state information specified by the application.</param>
+        /// <returns>The <see cref="IAsyncResult" />that references the asynchronous Validate request.</returns>
+        public IAsyncResult BeginValidate(Message message, AsyncCallback callback, object state)
+        {
+            return InnerChannel.BeginValidate(message, callback, state);
+        }
+
+        /// <summary>
+        /// Completes an asynchronous operation to send a WS-Trust Validate request to a STS.
+        /// </summary>
+        /// <param name="asyncResult">the <see cref="IAsyncResult" /> that is returned by a call to the BeginValidate() method.</param>
+        /// <returns>the <see cref="Message"/> returned from the STS.</returns>
+        public Message EndValidate(IAsyncResult asyncResult)
+        {
+            return InnerChannel.EndValidate(asyncResult);
+        }
+        #endregion
+
+        private IAsyncResult BeginOperation(WsTrustRequest trustRequest, AsyncCallback callback, object state)
+        {
+            _ = trustRequest ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(trustRequest));
+            Message message = CreateRequest(trustRequest);
+            return new WSTrustChannelAsyncResult(this, trustRequest, TrustSerializer, message, callback, state);
+        }
+
+        WsTrustResponse EndOperation(IAsyncResult result)
+        {
+            _ = result ?? throw DiagnosticUtility.ExceptionUtility.ThrowHelperArgumentNull(nameof(result));
+            return ReadResponse(WSTrustChannelAsyncResult.End(result));
+        }
+    }
+}

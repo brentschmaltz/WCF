@@ -58,6 +58,6 @@
         internal const string WSTrust13 = "/wsTrust13/";
         internal const string WSFederationMetadataNamespace = "http://docs.oasis-open.org/wsfed/federation/200706";
         internal const string WSTrustFeb2005Namespace = "http://schemas.xmlsoap.org/ws/2005/02/trust";
-        internal const string WSTrust13Namespace = "http://docs.oasis-open.org/ws-sx/ws-trust/200512";        
+        internal const string WSTrust13Namespace = "http://docs.oasis-open.org/ws-sx/ws-trust/200512";
     }
 }

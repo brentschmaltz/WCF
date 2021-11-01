@@ -25,6 +25,15 @@ namespace SelfHostSTS
             SelfHostSecurityTokenServiceConfiguration = selfHostSecurityTokenServiceConfiguration;
         }
 
+        public override RequestSecurityTokenResponse Cancel(ClaimsPrincipal principal, RequestSecurityToken request)
+        {
+            return new RequestSecurityTokenResponse {TokenType = "https://www.cancel.com"};
+        }
+
+        public override RSTR Issue(ClaimsPrincipal principal, RST request)
+        {
+            return base.Issue(principal, request);
+        }
         /// <summary>
         /// Gets the scope.
         /// </summary>
@@ -203,6 +212,16 @@ namespace SelfHostSTS
             return new X509EncryptingCredentials(SelfHostSecurityTokenServiceConfiguration.RelyingPartyCertificate);
         }
 
+        public override RequestSecurityTokenResponse Renew(ClaimsPrincipal principal, RequestSecurityToken request)
+        {
+            return new RequestSecurityTokenResponse { TokenType = "https://www.renew.com" };
+        }
+
         public SelfHostSecurityTokenServiceConfiguration SelfHostSecurityTokenServiceConfiguration { get; }
+
+        public override RequestSecurityTokenResponse Validate(ClaimsPrincipal principal, RequestSecurityToken request)
+        {
+            return new RequestSecurityTokenResponse { TokenType = "https://www.validate.com" };
+        }
     }
 }

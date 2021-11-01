@@ -46,6 +46,7 @@ namespace SelfHostSTS
         private static string _endpointNameTransportIssuerSaml20 = "trust/13/transportIssueSaml20";
         private static string _endpointNameTransportIssuerSaml = "trust/13/transportIssueSaml";
         private static string _endpointNameUsernameMixed = "trust/13/usernamemixed";
+        private static string WindowsTransport2005 = "trust/2005/windowsTransport";
 
         static void Main(string[] args)
         {
@@ -122,6 +123,7 @@ namespace SelfHostSTS
             binding.Security.Transport.ClientCredentialType = HttpClientCredentialType.Windows;
             BindingUtilities.SetMaxTimeout(binding);
             WSTrustServiceHost.AddServiceEndpoint(typeof(IWSTrust13SyncContract), binding, HttpsWSTrust13Address + WindowsTransport);
+            WSTrustServiceHost.AddServiceEndpoint(typeof(IWSTrustFeb2005SyncContract), binding, HttpsWSTrust13Address + WindowsTransport2005);
         }
 
         private static SelfHostSecurityTokenServiceConfiguration Configuration
